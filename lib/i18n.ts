@@ -1,5 +1,5 @@
 // Copyright 2025-2026 Alexander J. Sánchez T.
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 export type Lang = "es" | "en";
 
@@ -146,7 +146,7 @@ const es = {
   finalCta: {
     title: "Deja de reconstruir el ledger. Constrúyelo una sola vez, bien.",
     subtitle:
-      "Proyecto open source, etapa temprana. Clónalo, levántalo en local y revisa el código antes de confiarle nada.",
+      "Código fuente disponible, etapa temprana. Clónalo, levántalo en local y revisa el código antes de confiarle nada.",
   },
   footer: {
     tagline: "LedgerCore — infraestructura financiera",
@@ -358,7 +358,7 @@ const en: typeof es = {
   finalCta: {
     title: "Stop rebuilding the ledger. Build it once, and build it right.",
     subtitle:
-      "Open source and early-stage. Clone it, run it locally, and read the code before you trust it with anything.",
+      "Source-available and early-stage. Clone it, run it locally, and read the code before you trust it with anything.",
   },
   footer: {
     tagline: "LedgerCore — financial infrastructure",

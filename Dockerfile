@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Copyright 2025-2026 Alexander J. Sánchez T.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: FSL-1.1-ALv2
 
 # LedgerCore Console — multi-stage build with Next.js standalone output.
 # Build context = repository ROOT (consistent with the Go services):
