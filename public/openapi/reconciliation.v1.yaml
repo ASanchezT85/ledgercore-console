@@ -386,6 +386,7 @@ components:
                 validation_failed, invalid_cursor, unauthorized, forbidden,
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
+                account_not_postable, parent_account_has_activity,
                 rate_limited,
                 service_unavailable, internal.
             message:

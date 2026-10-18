@@ -172,6 +172,7 @@ paths:
                     normal_balance: CREDIT
                     status: active
                     allow_negative: false
+                    postable: true
                     metadata:
                       customer_id: cust_42
                     created_at: '2026-07-24T12:01:00Z'
@@ -179,6 +180,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: |
+            The name places the account under an existing account that already
+            has postings (drafts included) or active holds
+            (`parent_account_has_activity`). That account would become a
+            non-postable parent and could never move those funds again; post
+            to a new leaf instead (e.g. `assets:cash:main` beside
+            `assets:cash:usd`, not under an active `assets:cash`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                parentHasActivity:
+                  value:
+                    error:
+                      code: parent_account_has_activity
+                      message: 'domain: parent account already has postings or active holds: assets:cash cannot become a parent of assets:cash:usd'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     get:
       operationId: listAccounts
       tags: [Accounts]
@@ -221,6 +241,7 @@ paths:
                         normal_balance: CREDIT
                         status: active
                         allow_negative: false
+                        postable: true
                         metadata: {}
                         created_at: '2026-07-24T12:01:00Z'
                     next_cursor: null
@@ -250,6 +271,7 @@ paths:
                     normal_balance: CREDIT
                     status: active
                     allow_negative: false
+                    postable: true
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -264,6 +286,12 @@ paths:
         Returns one balance row per asset the account has ever touched.
         `pending` includes draft transactions and uncaptured holds;
         `available` = posted - active holds against the account.
+
+        For a parent account (`postable: false`) the rows are the sum of its
+        whole subtree — every account whose name starts with the parent's
+        name followed by `:` — computed on read, never stored, and signed by
+        the parent's `normal_balance`; `version` is the sum of the members'
+        versions and `aggregate` is `true`.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       responses:
@@ -273,12 +301,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [data, aggregate]
                 properties:
                   data:
                     type: array
                     items:
                       $ref: '#/components/schemas/Balance'
+                  aggregate:
+                    type: boolean
+                    description: True when the account is a parent and the rows sum its subtree.
               examples:
                 afterDeposit:
                   summary: Customer wallet after the USD 100 deposit (97 credited)
@@ -293,6 +324,7 @@ paths:
                         posted_debits: '0'
                         posted_credits: '9700'
                         version: 1
+                    aggregate: false
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -440,8 +472,10 @@ paths:
             The transaction does not balance per asset
             (`unbalanced_transaction`), would leave an account with
             `allow_negative: false` below zero available (`insufficient_funds`,
-            checked only when the transaction is posted), or touches a frozen
-            or closed account (`account_inactive`).
+            checked only when the transaction is posted), touches a frozen
+            or closed account (`account_inactive`), or posts to a parent
+            account — one with child accounts under its path
+            (`account_not_postable`).
           content:
             application/json:
               schema:
@@ -463,6 +497,12 @@ paths:
                     error:
                       code: account_inactive
                       message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+                accountNotPostable:
+                  value:
+                    error:
+                      code: account_not_postable
+                      message: 'domain: account has child accounts and cannot receive postings: account 3c2d8e4f-1b3c-7d5e-8f61-7a9b1c2d3e4f (assets) has child accounts; post to one of them'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     get:
       operationId: listTransactions
@@ -736,8 +776,9 @@ paths:
         '422':
           description: |
             Insufficient available balance to place the hold
-            (`insufficient_funds`), or the account is frozen or closed
-            (`account_inactive`).
+            (`insufficient_funds`), the account is frozen or closed
+            (`account_inactive`), or it is a parent account
+            (`account_not_postable`).
           content:
             application/json:
               schema:
@@ -753,6 +794,12 @@ paths:
                     error:
                       code: account_inactive
                       message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+                accountNotPostable:
+                  value:
+                    error:
+                      code: account_not_postable
+                      message: 'domain: account has child accounts and cannot receive postings: account 3c2d8e4f-1b3c-7d5e-8f61-7a9b1c2d3e4f (assets) has child accounts; post to one of them'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/holds/{id}:
@@ -1010,6 +1057,7 @@ paths:
                       normal_balance: CREDIT
                       status: active
                       allow_negative: false
+                      postable: true
                       metadata: {}
                       created_at: '2026-05-01T09:00:00Z'
                     period:
@@ -1246,6 +1294,7 @@ components:
                 validation_failed, invalid_cursor, unauthorized, forbidden,
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
+                account_not_postable, parent_account_has_activity,
                 rate_limited,
                 service_unavailable, internal.
             message:
@@ -1359,7 +1408,14 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          description: Unique within the ledger. Conventionally colon-namespaced.
+          description: |
+            Unique within the ledger, and its place in the account tree: `:`
+            separates levels, so `assets:cash:usd` is a child of `assets:cash`
+            and of `assets` (other characters, such as `/`, are part of the
+            name). Intermediate levels need not exist. An account with
+            children is a non-postable parent; creating a child under an
+            account that has postings or active holds fails with 422
+            `parent_account_has_activity`.
         type:
           $ref: '#/components/schemas/AccountType'
         normal_balance:
@@ -1379,7 +1435,7 @@ components:
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, postable, created_at]
       properties:
         id:
           type: string
@@ -1398,6 +1454,14 @@ components:
         allow_negative:
           type: boolean
           description: Overdraft policy; see `AccountCreate.allow_negative`.
+        postable:
+          type: boolean
+          readOnly: true
+          description: |
+            False when other accounts live under this one's name (it is a
+            parent). Derived on every read, never stored. A parent rejects
+            transactions and holds with 422 `account_not_postable`; its
+            balances are the sum of its subtree.
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
