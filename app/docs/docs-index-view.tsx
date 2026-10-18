@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 "use client";
 
 import Link from "next/link";
@@ -15,6 +18,7 @@ import {
   Rocket,
   Webhook,
 } from "lucide-react";
+import { AuthorCredit } from "@/components/author-credit";
 import { LanguageProvider, LangToggle, useLang } from "@/components/language";
 import { BrandLockup } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
@@ -245,6 +249,9 @@ function DocsIndexContent() {
 
       <footer className="border-t border-edge px-6 py-6 text-center">
         <p className="text-[11px] tracking-wide text-ink-faint">LedgerCore — {c.footer}</p>
+        <div className="mt-1">
+          <AuthorCredit lang={lang} />
+        </div>
       </footer>
     </div>
   );

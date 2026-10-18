@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 "use client";
 
 // Interactive API reference for the four OpenAPI contracts.

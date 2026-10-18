@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Realistic, internally-consistent demo data. Served whenever the LedgerCore
  * API is unreachable or NEXT_PUBLIC_API_URL is unset, so the console can be

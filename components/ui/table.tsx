@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
 
 /** Themed table primitives. Wrap in <Card flush> for full-bleed layout. */

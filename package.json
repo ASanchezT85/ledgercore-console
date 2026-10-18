@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "LedgerCore Console - web dashboard for finance teams and developers",
+  "author": "Alexander J. Sánchez T. (https://github.com/ASanchezT85)",
   "scripts": {
     "dev": "next dev -p 3000",
     "prebuild": "node scripts/prepare-docs-assets.mjs",

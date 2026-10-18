@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 "use client";
 
 // Shared UI for the developer docs portal (/docs). Mirrors the visual
@@ -7,6 +10,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, Copy, Terminal } from "lucide-react";
+import { AuthorCredit } from "@/components/author-credit";
 import { LangToggle, LanguageProvider, useLang } from "@/components/language";
 import { BrandLockup } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
@@ -204,6 +208,9 @@ function ShellChrome({
         <p className="text-[11px] tracking-wide text-ink-faint">
           LedgerCore — {lang === "es" ? "infraestructura financiera" : "financial infrastructure"}
         </p>
+        <div className="mt-1">
+          <AuthorCredit lang={lang} />
+        </div>
       </footer>
     </div>
   );

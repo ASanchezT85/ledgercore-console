@@ -1,6 +1,10 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 "use client";
 
 import Link from "next/link";
+import { AuthorCredit } from "@/components/author-credit";
 import { BrandLockup } from "@/components/logo";
 import { LangToggle, useLang } from "@/components/language";
 
@@ -60,7 +64,7 @@ export function PublicHeader({
 }
 
 export function PublicFooter() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   return (
     <footer className="border-t border-edge">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
@@ -70,6 +74,7 @@ export function PublicFooter() {
         <p className="text-[11px] tracking-wide text-ink-faint">
           {t.footer.tagline}
         </p>
+        <AuthorCredit lang={lang} />
       </div>
     </footer>
   );

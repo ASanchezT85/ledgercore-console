@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 import { FlaskConical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 

@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1
+# Copyright 2025-2026 Alexander J. Sánchez T.
+# SPDX-License-Identifier: Apache-2.0
+
 # LedgerCore Console — multi-stage build with Next.js standalone output.
 # Build context = repository ROOT (consistent with the Go services):
 #   docker build -f apps/console/Dockerfile -t ledgercore/console .

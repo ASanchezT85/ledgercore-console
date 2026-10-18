@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * LedgerCore logomark: a stylized isometric cube/ledger book. Pure inline
  * SVG so it ships with zero assets and inherits the accent gradient.

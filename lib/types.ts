@@ -1,3 +1,6 @@
+// Copyright 2025-2026 Alexander J. Sánchez T.
+// SPDX-License-Identifier: Apache-2.0
+
 /** Shared domain types used by the console pages and the API layer. */
 
 export type TransactionStatus = "posted" | "pending" | "reversed";
