@@ -361,7 +361,8 @@ components:
                 Stable machine-readable error code (snake_case). Catalog:
                 validation_failed, invalid_cursor, unauthorized, forbidden,
                 not_found, conflict, idempotency_conflict,
-                unbalanced_transaction, insufficient_funds, rate_limited,
+                unbalanced_transaction, insufficient_funds, account_inactive,
+                rate_limited,
                 service_unavailable, internal.
             message:
               type: string

@@ -152,6 +152,7 @@ paths:
                   name: customer:cust_42:wallet
                   type: liability
                   normal_balance: CREDIT
+                  allow_negative: false
                   metadata:
                     customer_id: cust_42
       responses:
@@ -170,6 +171,7 @@ paths:
                     type: liability
                     normal_balance: CREDIT
                     status: active
+                    allow_negative: false
                     metadata:
                       customer_id: cust_42
                     created_at: '2026-07-24T12:01:00Z'
@@ -218,6 +220,7 @@ paths:
                         type: liability
                         normal_balance: CREDIT
                         status: active
+                        allow_negative: false
                         metadata: {}
                         created_at: '2026-07-24T12:01:00Z'
                     next_cursor: null
@@ -246,6 +249,7 @@ paths:
                     type: liability
                     normal_balance: CREDIT
                     status: active
+                    allow_negative: false
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -432,7 +436,12 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
-          description: The transaction does not balance per asset.
+          description: |
+            The transaction does not balance per asset
+            (`unbalanced_transaction`), would leave an account with
+            `allow_negative: false` below zero available (`insufficient_funds`,
+            checked only when the transaction is posted), or touches a frozen
+            or closed account (`account_inactive`).
           content:
             application/json:
               schema:
@@ -443,6 +452,18 @@ paths:
                     error:
                       code: unbalanced_transaction
                       message: 'debits (10000 USD) do not equal credits (9700 USD)'
+                insufficientFunds:
+                  value:
+                    error:
+                      code: insufficient_funds
+                      message: 'domain: available balance would go negative: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e would have available -300 USD'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+                accountInactive:
+                  value:
+                    error:
+                      code: account_inactive
+                      message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     get:
       operationId: listTransactions
       tags: [Transactions]
@@ -554,6 +575,7 @@ paths:
                     posted_at: '2026-07-24T12:06:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
           description: The transaction is reversed and cannot be posted.
           content:
@@ -630,6 +652,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
           description: The transaction is not posted, or is already reversed.
           content:
@@ -711,7 +734,10 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422':
-          description: Insufficient available balance to place the hold.
+          description: |
+            Insufficient available balance to place the hold
+            (`insufficient_funds`), or the account is frozen or closed
+            (`account_inactive`).
           content:
             application/json:
               schema:
@@ -722,6 +748,12 @@ paths:
                     error:
                       code: insufficient_funds
                       message: 'available balance 9700 USD is less than hold amount 2500000 USD'
+                accountInactive:
+                  value:
+                    error:
+                      code: account_inactive
+                      message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/holds/{id}:
     get:
@@ -977,6 +1009,7 @@ paths:
                       type: liability
                       normal_balance: CREDIT
                       status: active
+                      allow_negative: false
                       metadata: {}
                       created_at: '2026-05-01T09:00:00Z'
                     period:
@@ -1161,6 +1194,28 @@ components:
                 error:
                   code: not_implemented
                   message: GET /v1/statements is not implemented yet; it is planned for a future milestone
+    MovementRejected:
+      description: |
+        Posting would leave an account with `allow_negative: false` below zero
+        available (`insufficient_funds`), or touches a frozen or closed account
+        (`account_inactive`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            insufficientFunds:
+              value:
+                error:
+                  code: insufficient_funds
+                  message: 'domain: available balance would go negative: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e would have available -300 USD'
+                  request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+            accountInactive:
+              value:
+                error:
+                  code: account_inactive
+                  message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                  request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     Conflict:
       description: Uniqueness conflict.
       content:
@@ -1190,7 +1245,8 @@ components:
                 Stable machine-readable error code (snake_case). Catalog:
                 validation_failed, invalid_cursor, unauthorized, forbidden,
                 not_found, conflict, idempotency_conflict,
-                unbalanced_transaction, insufficient_funds, rate_limited,
+                unbalanced_transaction, insufficient_funds, account_inactive,
+                rate_limited,
                 service_unavailable, internal.
             message:
               type: string
@@ -1238,6 +1294,10 @@ components:
     AccountStatus:
       type: string
       enum: [active, frozen, closed]
+      description: |
+        Only `active` accounts accept movements. A transaction (created,
+        posted from draft or reversed) or a hold that touches a `frozen` or
+        `closed` account fails with 422 `account_inactive`.
 
     HoldStatus:
       type: string
@@ -1304,12 +1364,22 @@ components:
           $ref: '#/components/schemas/AccountType'
         normal_balance:
           $ref: '#/components/schemas/Direction'
+        allow_negative:
+          type: boolean
+          description: |
+            Whether a posting may leave this account's available balance
+            (posted net minus active holds, signed by `normal_balance`) below
+            zero. When `false`, such a posting fails with 422
+            `insufficient_funds`. Defaults to `false` for `liability` accounts
+            (customer wallets: money the ledger owes) and `true` for every
+            other type, which routinely carry contra balances. Accounts that
+            existed before this field are `true`.
         metadata:
           $ref: '#/components/schemas/Metadata'
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, created_at]
       properties:
         id:
           type: string
@@ -1325,6 +1395,9 @@ components:
           $ref: '#/components/schemas/Direction'
         status:
           $ref: '#/components/schemas/AccountStatus'
+        allow_negative:
+          type: boolean
+          description: Overdraft policy; see `AccountCreate.allow_negative`.
         metadata:
           $ref: '#/components/schemas/Metadata'
         created_at:
@@ -1450,6 +1523,19 @@ components:
           description: Accounting effective date; defaults to creation time.
         metadata:
           $ref: '#/components/schemas/Metadata'
+        hold_id:
+          type: string
+          format: uuid
+          description: |
+            An active hold this payment settles (only with `status: posted`).
+            In the same database transaction the hold is captured and linked
+            (the hold's `transaction_id`), its reservation is released and only
+            then is the overdraft policy checked — so the payment may spend
+            the funds the hold set aside, and nobody else can in between. The
+            transaction must lower the held account in the held asset; the
+            captured amount is that decrease, capped at the hold, and any
+            remainder is released. Emits `ledger.hold.captured`. A hold that is
+            not active is 409 `conflict`. Part of the idempotency fingerprint.
 
     Transaction:
       type: object
