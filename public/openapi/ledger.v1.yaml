@@ -276,6 +276,113 @@ paths:
                     created_at: '2026-07-24T12:01:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateAccount
+      tags: [Accounts]
+      summary: Freeze, unfreeze or close an account, or change its overdraft policy
+      description: |
+        Changes the account's `status` and/or `allow_negative`; send at least
+        one. Fields left out keep their value. Requires the `ledger:write`
+        scope.
+
+        - `active` <-> `frozen` move freely. A frozen account rejects every
+          new transaction and hold (422 `account_inactive`); captures and
+          releases of holds it already has still work.
+        - `closed` is **final**: a closed account cannot be reopened, frozen
+          or have its policy changed (409 `conflict`).
+        - Only an **empty** account can be closed: zero posted balance, no
+          active holds and no draft transactions pending in every asset it
+          has touched. Otherwise 409 `conflict` — drain it, release or capture
+          its holds and post its drafts first.
+        - Lowering `allow_negative` to `false` on an account that is already
+          below zero is accepted: it can be refilled but not taken lower.
+        - Only a postable account can be changed. A parent (`postable:
+          false`) receives no movements, so its status and policy would govern
+          nothing: 422 `account_not_postable` — change its children instead.
+
+        The change waits for the transactions and holds already in flight on
+        the account and blocks new ones until it commits, so a freeze or close
+        never lands between a movement's status check and its commit.
+
+        Every change emits `ledger.account.updated` with the new and the
+        previous values. A request that changes nothing returns the account
+        as it is and emits nothing, so retries are safe without an
+        idempotency key.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUpdate'
+            examples:
+              freeze:
+                value:
+                  status: frozen
+              close:
+                value:
+                  status: closed
+              allowOverdraft:
+                value:
+                  allow_negative: true
+      responses:
+        '200':
+          description: The account after the change (or unchanged, if nothing differed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                frozenWallet:
+                  value:
+                    id: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    name: customer:cust_42:wallet
+                    type: liability
+                    normal_balance: CREDIT
+                    status: frozen
+                    allow_negative: false
+                    postable: true
+                    metadata: {}
+                    created_at: '2026-07-24T12:01:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The account is closed (closed is final), or it is not empty and
+            cannot be closed (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                closed:
+                  value:
+                    error:
+                      code: conflict
+                      message: 'domain: a closed account cannot be changed: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is closed'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+                notEmpty:
+                  value:
+                    error:
+                      code: conflict
+                      message: 'domain: only an empty account can be closed: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e has a posted balance of 9700 USD'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '422':
+          description: The account is a parent (`account_not_postable`); change its children instead.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                parent:
+                  value:
+                    error:
+                      code: account_not_postable
+                      message: 'domain: account has child accounts and cannot receive postings: account 5d4c3b2a-1f0e-7d6c-8b5a-493827161504 (customer:cust_42) has child accounts; change them instead'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/accounts/{id}/balances:
     get:
@@ -1346,7 +1453,9 @@ components:
       description: |
         Only `active` accounts accept movements. A transaction (created,
         posted from draft or reversed) or a hold that touches a `frozen` or
-        `closed` account fails with 422 `account_inactive`.
+        `closed` account fails with 422 `account_inactive`. Changed with
+        `PATCH /v1/accounts/{id}`: `active` and `frozen` move freely into each
+        other; `closed` is final and requires an empty account.
 
     HoldStatus:
       type: string
@@ -1432,6 +1541,18 @@ components:
             existed before this field are `true`.
         metadata:
           $ref: '#/components/schemas/Metadata'
+
+    AccountUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: Fields to change; at least one. Omitted fields keep their value.
+      properties:
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        allow_negative:
+          type: boolean
+          description: Overdraft policy; see `AccountCreate.allow_negative`.
 
     Account:
       type: object

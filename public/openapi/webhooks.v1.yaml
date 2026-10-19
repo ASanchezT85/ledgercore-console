@@ -370,6 +370,7 @@ components:
         - ledger.hold.created
         - ledger.hold.captured
         - ledger.hold.released
+        - ledger.account.updated
         - recon.discrepancy.detected
         - '*'
       description: Canonical event topics; `*` subscribes to every event type.
