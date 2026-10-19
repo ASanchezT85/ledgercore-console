@@ -387,7 +387,7 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                rate_limited,
+                period_closed, rate_limited,
                 service_unavailable, internal.
             message:
               type: string

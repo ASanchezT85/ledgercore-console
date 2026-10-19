@@ -28,6 +28,8 @@ tags:
     description: Balanced sets of postings. Lifecycle draft -> posted -> reversed.
   - name: Holds
     description: Two-phase authorizations that reserve funds before capture.
+  - name: Periods
+    description: Accounting periods of a ledger. Lifecycle open -> soft_closed -> hard_closed.
   - name: Reports
     description: Accounting reports.
 
@@ -580,9 +582,10 @@ paths:
             (`unbalanced_transaction`), would leave an account with
             `allow_negative: false` below zero available (`insufficient_funds`,
             checked only when the transaction is posted), touches a frozen
-            or closed account (`account_inactive`), or posts to a parent
+            or closed account (`account_inactive`), posts to a parent
             account — one with child accounts under its path
-            (`account_not_postable`).
+            (`account_not_postable`), or is dated in a closed accounting
+            period (`period_closed`; see `adjusts_period_id`).
           content:
             application/json:
               schema:
@@ -610,6 +613,12 @@ paths:
                     error:
                       code: account_not_postable
                       message: 'domain: account has child accounts and cannot receive postings: account 3c2d8e4f-1b3c-7d5e-8f61-7a9b1c2d3e4f (assets) has child accounts; post to one of them'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+                periodClosed:
+                  value:
+                    error:
+                      code: period_closed
+                      message: 'domain: accounting period is closed: period 0a1b2c3d-4e5f-7a8b-9c0d-1e2f3a4b5c6d (2026-09) is soft_closed; only adjustments of it may be dated in it'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     get:
       operationId: listTransactions
@@ -812,6 +821,120 @@ paths:
                     error:
                       code: conflict
                       message: transaction is already reversed
+
+  /v1/periods:
+    post:
+      operationId: createPeriod
+      tags: [Periods]
+      summary: Create an accounting period
+      description: |
+        Appends an `open` period `[starts_at, ends_at)` to a ledger. The
+        periods of a ledger are contiguous: the first one may start anywhere,
+        each next one must start exactly at the last one's `ends_at` (400
+        `validation_failed` otherwise), so they never overlap or leave gaps.
+        Dates outside every period are not governed, and a ledger without
+        periods behaves as if periods did not exist. Requires `ledger:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodCreate'
+            examples:
+              september:
+                value:
+                  ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                  name: '2026-09'
+                  starts_at: '2026-09-01T00:00:00Z'
+                  ends_at: '2026-10-01T00:00:00Z'
+      responses:
+        '201':
+          description: The period, open.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Period'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    get:
+      operationId: listPeriods
+      tags: [Periods]
+      summary: List a ledger's accounting periods
+      parameters:
+        - name: ledger_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of periods, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Period'
+                  next_cursor:
+                    type: [string, 'null']
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/periods/{id}:
+    patch:
+      operationId: transitionPeriod
+      tags: [Periods]
+      summary: Close a period (soft or hard)
+      description: |
+        Moves the period forward: `open` -> `soft_closed` -> `hard_closed`
+        (`soft_closed` may be skipped). Setting the current status again is a
+        no-op. Going back, including reopening a hard close, is 409
+        `conflict`. Each real transition writes a `period.transition` row to
+        the audit log in the same database transaction. Requires
+        `ledger:write`.
+
+        - `soft_closed`: only adjustments of this period
+          (`adjusts_period_id`) may be dated in it.
+        - `hard_closed`: no transaction may be dated in it (422
+          `period_closed`); correct it with an adjustment dated in an open
+          period.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodUpdate'
+            examples:
+              hardClose:
+                value:
+                  status: hard_closed
+      responses:
+        '200':
+          description: The period.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Period'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The transition would move the period back (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/holds:
     post:
@@ -1352,8 +1475,9 @@ components:
     MovementRejected:
       description: |
         Posting would leave an account with `allow_negative: false` below zero
-        available (`insufficient_funds`), or touches a frozen or closed account
-        (`account_inactive`).
+        available (`insufficient_funds`), touches a frozen or closed account
+        (`account_inactive`), or its `effective_at` falls in a closed
+        accounting period (`period_closed`).
       content:
         application/json:
           schema:
@@ -1370,6 +1494,12 @@ components:
                 error:
                   code: account_inactive
                   message: 'domain: account is not active: account 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e is frozen'
+                  request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+            periodClosed:
+              value:
+                error:
+                  code: period_closed
+                  message: 'domain: accounting period is closed: period 0a1b2c3d-4e5f-7a8b-9c0d-1e2f3a4b5c6d (2026-09) is hard_closed'
                   request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     Conflict:
       description: Uniqueness conflict.
@@ -1402,7 +1532,7 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                rate_limited,
+                period_closed, rate_limited,
                 service_unavailable, internal.
             message:
               type: string
@@ -1721,6 +1851,19 @@ components:
             captured amount is that decrease, capped at the hold, and any
             remainder is released. Emits `ledger.hold.captured`. A hold that is
             not active is 409 `conflict`. Part of the idempotency fingerprint.
+        adjusts_period_id:
+          type: string
+          format: uuid
+          description: |
+            Makes this transaction an adjustment of that accounting period of
+            the same ledger, which must be `soft_closed` or `hard_closed`; the
+            adjustment cannot be dated before the period starts. A
+            `soft_closed` period accepts only adjustments of itself; a
+            `hard_closed` one accepts nothing, so it is corrected by an
+            adjustment dated in an open period. Covered by the journal hash
+            and part of the idempotency fingerprint. 404 when the period does
+            not exist in the ledger; 400 `validation_failed` when it is open
+            or starts after `effective_at`.
 
     Transaction:
       type: object
@@ -1755,6 +1898,10 @@ components:
           type: [string, 'null']
           format: uuid
           description: Id of the original transaction, when this one is a reversal.
+        adjusts_period_id:
+          type: [string, 'null']
+          format: uuid
+          description: Id of the accounting period this transaction adjusts, when it is an adjustment.
         effective_at:
           type: string
           format: date-time
@@ -1764,6 +1911,66 @@ components:
           format: date-time
         posted_at:
           type: [string, 'null']
+          format: date-time
+
+    PeriodStatus:
+      type: string
+      enum: [open, soft_closed, hard_closed]
+
+    PeriodCreate:
+      type: object
+      required: [ledger_id, name, starts_at, ends_at]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        starts_at:
+          type: string
+          format: date-time
+          description: Inclusive start. Must equal the ledger's last period `ends_at`, if any.
+        ends_at:
+          type: string
+          format: date-time
+          description: Exclusive end; after `starts_at`.
+
+    PeriodUpdate:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          $ref: '#/components/schemas/PeriodStatus'
+
+    Period:
+      type: object
+      required: [id, ledger_id, name, starts_at, ends_at, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/PeriodStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
           format: date-time
 
     HoldCreate:
