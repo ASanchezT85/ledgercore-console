@@ -39,6 +39,16 @@ const RESPONSE_SNIPPET = `{
   ]
 }`;
 
+const REPO = "https://github.com/ASanchezT85/ledgercore";
+
+// Same commands as the README quickstart and "Demo data"; notes in i18n tryIt.notes.
+const TRY_STEPS = [
+  `git clone ${REPO}.git && cd ledgercore
+docker compose -f infra/compose/docker-compose.yml up -d --build`,
+  "bash examples/demo-data.sh",
+  "bash examples/golden-scenarios.sh",
+] as const;
+
 const TRUST_ICONS = [BookLock, ShieldCheck, Layers] as const;
 
 function CtaPrimary({
@@ -98,15 +108,15 @@ function LandingContent() {
           {t.hero.subtitle}
         </p>
         <div className="lc-enter mt-9 flex flex-wrap items-center gap-3 [--lc-delay:180ms]">
-          <CtaPrimary href="/signup">{t.hero.ctaPrimary}</CtaPrimary>
-          <CtaSecondary href="/dashboard">{t.hero.ctaSecondary}</CtaSecondary>
+          <CtaPrimary href="#try">{t.hero.ctaPrimary}</CtaPrimary>
+          <CtaSecondary href={REPO}>{t.hero.ctaSecondary}</CtaSecondary>
         </div>
       </section>
 
-      {/* Problem stats */}
+      {/* Benchmark (docs/benchmark.md) */}
       <section className="mx-auto w-full max-w-6xl px-6 pb-20">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {t.stats.map((s) => (
+          {t.bench.items.map((s) => (
             <div
               key={s.value}
               className="rounded-(--radius-card) border border-edge bg-surface/70 p-6"
@@ -121,9 +131,13 @@ function LandingContent() {
           ))}
         </div>
         <p className="mt-6 text-sm text-ink-faint">
-          {t.statsFootPre}
-          <code className="font-mono text-xs">balance</code>
-          {t.statsFootPost}
+          {t.bench.foot}
+          <Link
+            href={`${REPO}/blob/main/docs/benchmark.md`}
+            className="font-medium text-accent hover:underline"
+          >
+            {t.bench.link}
+          </Link>
         </p>
       </section>
 
@@ -216,18 +230,18 @@ function LandingContent() {
         </p>
       </section>
 
-      {/* Features */}
+      {/* Guarantees (README "What LedgerCore guarantees") */}
       <section className="mx-auto w-full max-w-6xl px-6 pb-20">
         <div className="lc-reveal mb-8 max-w-2xl">
           <h2 className="font-serif text-[30px] leading-tight tracking-[-0.01em] text-ink">
-            {t.features.title}
+            {t.guarantees.title}
           </h2>
           <p className="mt-2 text-sm text-ink-muted">
-            {t.features.subtitle}
+            {t.guarantees.subtitle}
           </p>
         </div>
         <div className="grid grid-cols-1 gap-x-12 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
-          {t.features.items.map(({ title, body }) => (
+          {t.guarantees.items.map(({ title, body }) => (
             <div key={title} className="border-t border-edge-strong pt-4">
               <h3 className="text-base font-semibold text-ink">{title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-ink-muted">
@@ -236,8 +250,44 @@ function LandingContent() {
             </div>
           ))}
         </div>
+        <p className="mt-8">
+          <Link
+            href={`${REPO}#what-ledgercore-guarantees`}
+            className="text-sm font-medium text-accent hover:underline"
+          >
+            {t.guarantees.link}
+          </Link>
+        </p>
       </section>
 
+      {/* Try it */}
+      <section id="try" className="mx-auto w-full max-w-6xl scroll-mt-8 px-6 pb-20">
+        <div className="lc-reveal mb-8 max-w-2xl">
+          <h2 className="font-serif text-[30px] leading-tight tracking-[-0.01em] text-ink">
+            {t.tryIt.title}
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+            {t.tryIt.subtitle}
+          </p>
+        </div>
+        <ol className="grid grid-cols-1 gap-4">
+          {TRY_STEPS.map((cmd, i) => (
+            <li
+              key={cmd}
+              className="overflow-hidden rounded-(--radius-card) border border-edge bg-surface"
+            >
+              <p className="border-b border-edge px-4 py-2.5 text-sm text-ink-muted">
+                <span className="num mr-2 font-semibold text-accent">{i + 1}</span>
+                {t.tryIt.notes[i]}
+              </p>
+              <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-ink">
+                <code>{cmd}</code>
+              </pre>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-6 text-sm text-ink-faint">{t.tryIt.consoleNote}</p>
+      </section>
 
       {/* Trust strip */}
       <section className="border-y border-edge bg-surface/50">
@@ -266,8 +316,8 @@ function LandingContent() {
           {t.finalCta.subtitle}
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <CtaPrimary href="/signup">{t.hero.ctaPrimary}</CtaPrimary>
-          <CtaSecondary href="/dashboard">{t.hero.ctaSecondary}</CtaSecondary>
+          <CtaPrimary href="/signup">{t.finalCta.ctaPrimary}</CtaPrimary>
+          <CtaSecondary href="/dashboard">{t.finalCta.ctaSecondary}</CtaSecondary>
         </div>
       </section>
 

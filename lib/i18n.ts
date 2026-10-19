@@ -29,7 +29,7 @@ const es = {
   meta: {
     title: "LedgerCore — el ledger de doble entrada para fintechs",
     description:
-      "Ledger de doble entrada como servicio: idempotencia, holds, conciliación, webhooks firmados y aislamiento multi-tenant con RLS.",
+      "Ledger de doble entrada de código fuente disponible: asientos balanceados, historia inmutable, dinero exacto e idempotencia, garantizados por PostgreSQL. Levántalo en local con docker compose.",
   },
   nav: {
     docs: "Docs",
@@ -41,22 +41,24 @@ const es = {
     homeAriaLabel: "LedgerCore — ir al inicio",
   },
   hero: {
-    badge: "Ledger como servicio · en etapa temprana",
+    badge: "Código fuente disponible · FSL-1.1 → Apache-2.0 · pre-1.0",
     titlePre: "El ledger de doble entrada para fintechs que ",
     titleHighlight: "mueven dinero",
     titlePost: "",
     subtitle:
       "¿Dónde está el dinero, a quién pertenece y qué operación explica cada centavo? LedgerCore responde esa pregunta en todo momento, con garantías de base de datos y no con hojas de cálculo.",
-    ctaPrimary: "Probar el sandbox",
-    ctaSecondary: "Ver la consola demo",
+    ctaPrimary: "Pruébalo en 1 minuto",
+    ctaSecondary: "Ver el código en GitHub",
   },
-  stats: [
-    { value: "94%", label: "de las hojas de cálculo financieras contienen errores" },
-    { value: "52%", label: "de las excepciones de conciliación nunca se explican del todo" },
-    { value: "6 cifras", label: "los descuadres invisibles crecen en silencio hasta ser noticia" },
-  ],
-  statsFootPre: "El estado del dinero no puede vivir en columnas de Excel ni en un campo ",
-  statsFootPost: " que alguien actualiza a mano.",
+  bench: {
+    items: [
+      { value: "~390 tx/s", label: "por ledger, con 8 a 64 clientes concurrentes y cero errores" },
+      { value: "~1.170 tx/s", label: "repartiendo la carga entre ledgers (un ledger por worker)" },
+      { value: "42 ms", label: "de p99 con 32 workers concurrentes, de punta a punta por HTTP" },
+    ],
+    foot: "Medido en un laptop (Ryzen 7 7840HS, Docker Desktop, PostgreSQL con la configuración por defecto) contra la API pública. ",
+    link: "Metodología y cómo correrlo tú →",
+  },
   scenarios: {
     answerLabel: "Qué hace LedgerCore:",
     title: "Cuatro escenarios que ya viviste",
@@ -97,7 +99,7 @@ const es = {
       },
     ],
     footNote:
-      "¿Tu escenario no está acá? Es exactamente lo que queremos escuchar — estamos en descubrimiento.",
+      "¿Tu escenario no está acá? Abre un issue en GitHub: es exactamente lo que queremos escuchar.",
   },
   how: {
     title: "Una API, asientos siempre balanceados",
@@ -107,46 +109,60 @@ const es = {
       "10000 = 9700 + 300. Montos en unidades menores (centavos), como enteros. Si no balancea, no se postea.",
     quickstartCta: "Hazlo tú mismo: de 0 a tu primera transacción en 10 minutos →",
   },
-  features: {
-    title: "Qué incluye",
+  guarantees: {
+    title: "Qué garantiza",
     subtitle:
-      "La infraestructura contable que cada fintech reconstruye a mano, lista como servicio.",
+      "Cada garantía está en el código y cubierta por un test. Las invariantes contables las hace cumplir PostgreSQL, no la aplicación.",
     items: [
       {
-        title: "Doble entrada con idempotencia",
-        body: "Cada transacción debita y acredita en el mismo movimiento atómico. La Idempotency-Key garantiza que un retry nunca duplica dinero.",
+        title: "Balanceado",
+        body: "Toda transacción posteada balancea por activo. Lo verifica un trigger diferido en PostgreSQL al COMMIT, así que un INSERT directo por SQL también se rechaza.",
       },
       {
-        title: "Holds y fondos reservados",
-        body: "Reserva saldo antes de capturarlo. Autorizaciones, retenciones y liberaciones con el mismo rigor contable que un posteo.",
+        title: "Historia inmutable",
+        body: "Los postings son append-only: UPDATE y DELETE fallan en la base de datos, incluso para un superusuario. Una transacción solo avanza draft → posted → reversed.",
       },
       {
-        title: "Conciliación integrada",
-        body: "Ingiere extractos de bancos y PSPs, casa movimientos contra el ledger y expone cada discrepancia con su explicación.",
+        title: "Dinero exacto",
+        body: "Montos BIGINT en unidades menores, con código de activo y exponente. Ningún float en el camino del dinero; lo que no cabe se rechaza, no se redondea.",
       },
       {
-        title: "Webhooks firmados",
-        body: "Eventos de posteo, hold y conciliación firmados criptográficamente, con reintentos y verificación de origen.",
+        title: "Escrituras idempotentes",
+        body: "Toda mutación exige Idempotency-Key. La misma llave con el mismo payload devuelve el resultado original; con otro payload, es un conflicto.",
       },
       {
-        title: "Multi-tenant con RLS",
-        body: "Aislamiento por tenant a nivel de fila en Postgres. Los datos de un cliente son invisibles para cualquier otro, por diseño.",
+        title: "Correcciones por reverso",
+        body: "Un reverso es una transacción nueva que referencia a la original. Los postings originales nunca se tocan.",
       },
       {
-        title: "Consola de operaciones",
-        body: "Dashboard para finanzas y soporte: balances, transacciones, salud de conciliación y credenciales de API en un solo lugar.",
+        title: "Aislamiento entre tenants",
+        body: "Row-Level Security forzada en cada tabla de negocio, y servicios que conectan con roles sin BYPASSRLS. Los tests de aislamiento corren con esos roles reales.",
       },
     ],
+    link: "Las garantías completas, y lo que no garantiza →",
+  },
+  tryIt: {
+    title: "Pruébalo en 1 minuto",
+    subtitle:
+      "Solo necesitas Docker con Compose v2 (más curl y python3 para los scripts). El primer build de las imágenes tarda unos minutos; después, levantarlo y cargar datos es cuestión de segundos.",
+    notes: [
+      "Levanta PostgreSQL, NATS, el gateway y los servicios Go, y aplica las migraciones.",
+      "Carga un escenario de wallets: depósitos y retiros con fee, un reverso, un hold capturado y un borrador descartado. Idempotente.",
+      "Ejecuta cada afirmación del README contra tu instancia y la verifica: 37 aserciones, incluidos los casos que deben fallar.",
+    ],
+    consoleNote: "¿Quieres la consola en :3000? Añade --profile web al compose.",
   },
   trust: [
     "Append-only por diseño",
-    "Test anti-fuga entre tenants en CI",
+    "Aislamiento entre tenants probado con roles reales",
     "Dinero como enteros, nunca floats",
   ],
   finalCta: {
     title: "Deja de reconstruir el ledger. Constrúyelo una sola vez, bien.",
     subtitle:
-      "Código fuente disponible, etapa temprana. Clónalo, levántalo en local y revisa el código antes de confiarle nada.",
+      "Código fuente disponible bajo FSL-1.1; cada versión pasa a Apache-2.0 a los dos años. Etapa temprana: clónalo, léelo y corre los escenarios antes de confiarle nada. ¿Sin Docker a mano? Prueba el sandbox hospedado.",
+    ctaPrimary: "Probar el sandbox",
+    ctaSecondary: "Ver la consola demo",
   },
   footer: {
     tagline: "LedgerCore — infraestructura financiera",
@@ -172,7 +188,7 @@ const es = {
     errNetwork: "No se pudo enviar. Revisá tu conexión.",
   },
   login: {
-    tagline: "Consola de operaciones · ledger de doble partida como servicio",
+    tagline: "Consola de operaciones · ledger de doble entrada",
     title: "Iniciar sesión",
     expired:
       "Tu sesión expiró o la llave dejó de ser válida. Vuelve a entrar con tu API key.",
@@ -195,7 +211,7 @@ const es = {
   },
   signup: {
     metaTitle: "Crear sandbox · LedgerCore",
-    tagline: "Sandbox gratuito · ledger de doble partida como servicio",
+    tagline: "Sandbox gratuito · ledger de doble entrada",
     createTitle: "Crear sandbox",
     days: "14 días",
     emailLabel: "Correo de trabajo",
@@ -241,7 +257,7 @@ const en: typeof es = {
   meta: {
     title: "LedgerCore — the double-entry ledger for fintechs",
     description:
-      "Double-entry ledger as a service: idempotency, holds, reconciliation, signed webhooks, and multi-tenant isolation with RLS.",
+      "Source-available double-entry ledger: balanced entries, immutable history, exact money, and idempotency, enforced by PostgreSQL. Run it locally with docker compose.",
   },
   nav: {
     docs: "Docs",
@@ -253,22 +269,24 @@ const en: typeof es = {
     homeAriaLabel: "LedgerCore — go to home",
   },
   hero: {
-    badge: "Ledger as a service · early stage",
+    badge: "Source-available · FSL-1.1 → Apache-2.0 · pre-1.0",
     titlePre: "The double-entry ledger for fintechs that ",
     titleHighlight: "move money",
     titlePost: "",
     subtitle:
       "Where is the money, who owns it, and which operation explains every cent? LedgerCore answers that question at all times — with database guarantees, not spreadsheets.",
-    ctaPrimary: "Try the sandbox",
-    ctaSecondary: "See the demo console",
+    ctaPrimary: "Try it in 1 minute",
+    ctaSecondary: "View the code on GitHub",
   },
-  stats: [
-    { value: "94%", label: "of financial spreadsheets contain errors" },
-    { value: "52%", label: "of reconciliation exceptions are never fully explained" },
-    { value: "6 figures", label: "invisible discrepancies compound quietly until they make headlines" },
-  ],
-  statsFootPre: "The state of your money can't live in Excel columns or a ",
-  statsFootPost: " field someone updates by hand.",
+  bench: {
+    items: [
+      { value: "~390 tx/s", label: "per ledger, with 8 to 64 concurrent clients and zero errors" },
+      { value: "~1,170 tx/s", label: "spreading the load across ledgers (one ledger per worker)" },
+      { value: "42 ms", label: "p99 with 32 concurrent workers, end to end over HTTP" },
+    ],
+    foot: "Measured on a laptop (Ryzen 7 7840HS, Docker Desktop, stock PostgreSQL settings) against the public API. ",
+    link: "Methodology and how to run it yourself →",
+  },
   scenarios: {
     answerLabel: "What LedgerCore does:",
     title: "Four scenarios you've already lived",
@@ -309,7 +327,7 @@ const en: typeof es = {
       },
     ],
     footNote:
-      "Your scenario isn't here? That's exactly what we want to hear — we're in discovery.",
+      "Your scenario isn't here? Open an issue on GitHub — that's exactly what we want to hear.",
   },
   how: {
     title: "One API, always-balanced entries",
@@ -319,46 +337,60 @@ const en: typeof es = {
       "10000 = 9700 + 300. Amounts in minor units (cents), as integers. If it doesn't balance, it doesn't post.",
     quickstartCta: "Do it yourself: from 0 to your first transaction in 10 minutes →",
   },
-  features: {
-    title: "What's included",
+  guarantees: {
+    title: "What it guarantees",
     subtitle:
-      "The accounting infrastructure every fintech rebuilds by hand — ready as a service.",
+      "Each guarantee is in the code and covered by a test. The accounting invariants are enforced by PostgreSQL, not by application code.",
     items: [
       {
-        title: "Double-entry with idempotency",
-        body: "Every transaction debits and credits in a single atomic move. The Idempotency-Key guarantees a retry never duplicates money.",
+        title: "Balanced",
+        body: "Every posted transaction balances per asset. A deferred constraint trigger checks it at COMMIT, so a direct SQL INSERT is rejected too.",
       },
       {
-        title: "Holds and reserved funds",
-        body: "Reserve balance before you capture it. Authorizations, holds, and releases with the same accounting rigor as a posting.",
+        title: "Immutable history",
+        body: "Postings are append-only: UPDATE and DELETE fail in the database, even for a superuser. A transaction only moves draft → posted → reversed.",
       },
       {
-        title: "Built-in reconciliation",
-        body: "Ingest bank and PSP statements, match movements against the ledger, and surface every discrepancy with its explanation.",
+        title: "Exact money",
+        body: "BIGINT amounts in minor units, with an asset code and exponent. No floats on the money path; what doesn't fit is rejected, not rounded.",
       },
       {
-        title: "Signed webhooks",
-        body: "Posting, hold, and reconciliation events, cryptographically signed, with retries and origin verification.",
+        title: "Idempotent writes",
+        body: "Every mutation requires an Idempotency-Key. The same key and payload return the original result; a different payload is a conflict.",
       },
       {
-        title: "Multi-tenant with RLS",
-        body: "Row-level tenant isolation in Postgres. One customer's data is invisible to every other — by design.",
+        title: "Reversible corrections",
+        body: "A reversal is a new transaction referencing the original. The original postings are never touched.",
       },
       {
-        title: "Operations console",
-        body: "A dashboard for finance and support: balances, transactions, reconciliation health, and API credentials in one place.",
+        title: "Tenant isolation",
+        body: "Row-Level Security forced on every business table, and services that connect as roles without BYPASSRLS. The isolation tests run as those real roles.",
       },
     ],
+    link: "The full guarantees, and what it does not guarantee →",
+  },
+  tryIt: {
+    title: "Try it in 1 minute",
+    subtitle:
+      "All you need is Docker with Compose v2 (plus curl and python3 for the scripts). The first image build takes a few minutes; after that, starting it and loading data takes seconds.",
+    notes: [
+      "Starts PostgreSQL, NATS, the gateway and the Go services, and runs the migrations.",
+      "Loads a wallet scenario: deposits and withdrawals with fees, a reversal, a captured hold, and a discarded draft. Idempotent.",
+      "Runs every claim in the README against your instance and checks it: 37 assertions, including the cases that must fail.",
+    ],
+    consoleNote: "Want the console on :3000? Add --profile web to the compose command.",
   },
   trust: [
     "Append-only by design",
-    "Cross-tenant leak tests in CI",
+    "Tenant isolation tested as real roles",
     "Money as integers, never floats",
   ],
   finalCta: {
     title: "Stop rebuilding the ledger. Build it once, and build it right.",
     subtitle:
-      "Source-available and early-stage. Clone it, run it locally, and read the code before you trust it with anything.",
+      "Source-available under FSL-1.1; each version becomes Apache-2.0 after two years. Early-stage: clone it, read it, and run the scenarios before you trust it with anything. No Docker at hand? Try the hosted sandbox.",
+    ctaPrimary: "Try the sandbox",
+    ctaSecondary: "See the demo console",
   },
   footer: {
     tagline: "LedgerCore — financial infrastructure",
@@ -384,7 +416,7 @@ const en: typeof es = {
     errNetwork: "Could not send. Check your connection.",
   },
   login: {
-    tagline: "Operations console · double-entry ledger as a service",
+    tagline: "Operations console · double-entry ledger",
     title: "Sign in",
     expired:
       "Your session expired or the key is no longer valid. Sign in again with your API key.",
@@ -407,7 +439,7 @@ const en: typeof es = {
   },
   signup: {
     metaTitle: "Create sandbox · LedgerCore",
-    tagline: "Free sandbox · double-entry ledger as a service",
+    tagline: "Free sandbox · double-entry ledger",
     createTitle: "Create sandbox",
     days: "14 days",
     emailLabel: "Work email",
