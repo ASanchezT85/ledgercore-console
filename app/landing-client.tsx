@@ -14,29 +14,39 @@ import {
 import { LanguageProvider, useLang } from "@/components/language";
 import { PublicFooter, PublicHeader } from "@/components/public-header";
 
-const CURL_SNIPPET = `curl -X POST https://api.ledgercore.dev/v1/transactions \\
-  -H "Authorization: Bearer $LEDGERCORE_API_KEY" \\
-  -H "Idempotency-Key: dep_9f2c41d7" \\
+const CURL_SNIPPET = `curl -X POST http://localhost:8081/v1/transactions \\
+  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" \\
+  -H "Idempotency-Key: dep-0001" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "ledger": "main",
-    "description": "Customer deposit — USD 100",
+    "ledger_id": "'$LEDGER'",
+    "description": "Customer USD deposit",
     "postings": [
-      { "account": "assets/custody/bank/bofa",              "direction": "debit",  "amount": 10000, "asset": "USD" },
-      { "account": "liabilities/customers/cus_8c31/wallet", "direction": "credit", "amount": 9700,  "asset": "USD" },
-      { "account": "revenue/fees/deposit",                  "direction": "credit", "amount": 300,   "asset": "USD" }
+      { "account_id": "'$CASH'",   "direction": "DEBIT",  "amount": { "asset": "USD", "amount": "10000" } },
+      { "account_id": "'$WALLET'", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "9700" } },
+      { "account_id": "'$FEES'",   "direction": "CREDIT", "amount": { "asset": "USD", "amount": "300" } }
     ]
   }'`;
 
+// Real 201 response from the local compose stack (the exact request above).
 const RESPONSE_SNIPPET = `{
-  "id": "txn_01J9ZK3Q7W",
+  "id": "01a155df-47e5-73c8-9958-fc0c8bccc30c",
+  "ledger_id": "01a155df-469e-79dc-abbd-ac1a4454c359",
+  "idempotency_key": "dep-0001",
+  "description": "Customer USD deposit",
   "status": "posted",
-  "balanced": true,
   "postings": [
-    { "account": "assets/custody/bank/bofa",              "debit":  10000 },
-    { "account": "liabilities/customers/cus_8c31/wallet", "credit":  9700 },
-    { "account": "revenue/fees/deposit",                  "credit":   300 }
-  ]
+    { "id": "01a155df-47e5-73c1-bc10-9dd491f1001c", "account_id": "01a155df-46fe-74b2-8c7f-f55ad7a34167", "direction": "DEBIT",  "amount": { "asset": "USD", "amount": "10000" } },
+    { "id": "01a155df-47e5-73c2-8ba7-e4923596fd47", "account_id": "01a155df-4769-7149-a825-0b1644219b50", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "9700" } },
+    { "id": "01a155df-47e5-73c3-888a-d4ab6ef0b5e4", "account_id": "01a155df-47b0-78ab-918f-a78ec0a59d75", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "300" } }
+  ],
+  "metadata": {},
+  "reversed_by": null,
+  "reverses": null,
+  "adjusts_period_id": null,
+  "effective_at": "2026-10-19T20:34:18.725247785Z",
+  "created_at": "2026-10-19T20:34:18.725247785Z",
+  "posted_at": "2026-10-19T20:34:18.725247785Z"
 }`;
 
 const REPO = "https://github.com/ASanchezT85/ledgercore";
