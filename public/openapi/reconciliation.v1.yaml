@@ -217,12 +217,15 @@ paths:
                       $ref: '#/components/schemas/SourceSummary'
                   totals:
                     type: object
-                    required: [matched, unmatched, disputed, open_discrepancies]
+                    required: [matched, unmatched, disputed, open_discrepancies, overdue_discrepancies]
                     properties:
                       matched: { type: integer }
                       unmatched: { type: integer }
                       disputed: { type: integer }
                       open_discrepancies: { type: integer }
+                      overdue_discrepancies:
+                        type: integer
+                        description: Unresolved discrepancies already past their `due_at`.
               examples:
                 report:
                   value:
@@ -233,11 +236,13 @@ paths:
                         unmatched: 2
                         disputed: 0
                         open_discrepancies: 2
+                        overdue_discrepancies: 1
                     totals:
                       matched: 118
                       unmatched: 2
                       disputed: 0
                       open_discrepancies: 2
+                      overdue_discrepancies: 1
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /v1/reconciliation/discrepancies:
@@ -251,6 +256,24 @@ paths:
           description: Filter by triage status; omit for all.
           schema:
             $ref: '#/components/schemas/DiscrepancyStatus'
+        - name: severity
+          in: query
+          description: Filter by severity; omit for all.
+          schema:
+            $ref: '#/components/schemas/Severity'
+        - name: owner
+          in: query
+          description: Filter by assignee handle (exact match); omit for all.
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9._:-]{1,128}$'
+        - name: overdue
+          in: query
+          description: |
+            `true` keeps only unresolved discrepancies already past their
+            `due_at`; `false` or omitted does not filter.
+          schema:
+            type: boolean
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -276,6 +299,19 @@ paths:
       operationId: updateDiscrepancy
       tags: [Discrepancies]
       summary: Triage a discrepancy
+      description: |
+        Partial update: send only the fields to change. All of `status`,
+        `severity`, `owner` and `resolution_note` are optional, but at least
+        one is required (an empty body is 400 `validation_failed`).
+
+        - Changing `severity` moves `due_at` to `created_at` + the SLA of the
+          new severity, so raising the severity of an old discrepancy can make
+          it overdue at once.
+        - Moving `status` to `resolved` stamps `resolved_at`; moving it back to
+          `open` or `investigating` clears it.
+        - `owner` is a handle (user id, team slug, `api_key:<id>`), never an
+          email or a name: it is copied into the audit log, which holds no PII.
+          Send `""` to unassign.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
@@ -284,11 +320,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [status]
+              minProperties: 1
               additionalProperties: false
               properties:
                 status:
                   $ref: '#/components/schemas/DiscrepancyStatus'
+                severity:
+                  $ref: '#/components/schemas/Severity'
+                owner:
+                  type: string
+                  pattern: '^([A-Za-z0-9._:-]{1,128})?$'
+                  description: |
+                    Assignee handle; `""` unassigns. Never an email or a name.
                 resolution_note:
                   type: string
             examples:
@@ -296,6 +339,10 @@ paths:
                 value:
                   status: resolved
                   resolution_note: duplicate wire, refunded by bank
+              assign:
+                value:
+                  owner: team:payments-ops
+                  severity: critical
       responses:
         '200':
           description: Updated discrepancy.
@@ -485,9 +532,27 @@ components:
       type: string
       enum: [open, investigating, resolved]
 
+    Severity:
+      type: string
+      enum: [low, medium, high, critical]
+      description: |
+        Triage priority; it sets the SLA, i.e. how long after `created_at` the
+        discrepancy may stay unresolved (`due_at`):
+
+        | severity | SLA |
+        |---|---|
+        | critical | 4 hours |
+        | high | 24 hours |
+        | medium | 72 hours |
+        | low | 7 days |
+
+        The table is fixed for all tenants. A run assigns the default severity
+        by kind: `amount_mismatch` and `duplicate` are `high`, the others
+        `medium`.
+
     Discrepancy:
       type: object
-      required: [id, run_id, kind, details, status, created_at]
+      required: [id, run_id, kind, details, status, severity, owner, due_at, resolved_at, age_seconds, sla_breached, created_at]
       properties:
         id:
           type: string
@@ -504,13 +569,36 @@ components:
           description: Free-form context of the mismatch (external ref, amounts, etc.).
         status:
           $ref: '#/components/schemas/DiscrepancyStatus'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        owner:
+          type: [string, 'null']
+          description: Assignee handle; null when unassigned.
+        due_at:
+          type: string
+          format: date-time
+          description: SLA deadline, `created_at` + the SLA of `severity`.
+        resolved_at:
+          type: [string, 'null']
+          format: date-time
+          description: Set exactly while `status` is `resolved`; null otherwise.
+        age_seconds:
+          type: integer
+          description: |
+            Seconds since `created_at`, computed at read time; the clock stops
+            at `resolved_at`.
+        sla_breached:
+          type: boolean
+          description: |
+            True when the discrepancy is unresolved and past `due_at`, or was
+            resolved after it.
         created_at:
           type: string
           format: date-time
 
     SourceSummary:
       type: object
-      required: [source_id, source_name, matched, unmatched, disputed, open_discrepancies]
+      required: [source_id, source_name, matched, unmatched, disputed, open_discrepancies, overdue_discrepancies]
       properties:
         source_id:
           type: string
@@ -525,3 +613,6 @@ components:
           type: integer
         open_discrepancies:
           type: integer
+        overdue_discrepancies:
+          type: integer
+          description: Unresolved discrepancies already past their `due_at`.
