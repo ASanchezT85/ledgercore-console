@@ -56,8 +56,8 @@ function LiveDevelopers() {
   return (
     <>
       <Card
-        title="Sesión actual"
-        subtitle="Identidad del tenant derivada del JWT de la sesión"
+        title="Current session"
+        subtitle="Tenant identity derived from the session JWT"
       >
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
@@ -70,7 +70,7 @@ function LiveDevelopers() {
           </div>
           <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
             <dt className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-              <ShieldCheck size={12} aria-hidden="true" /> Entorno
+              <ShieldCheck size={12} aria-hidden="true" /> Environment
             </dt>
             <dd className="mt-1.5">
               <Badge tone={claims?.env === "live" ? "emerald" : "violet"} dot>
@@ -100,14 +100,14 @@ function LiveDevelopers() {
           </div>
         </dl>
         <p className="mt-3 text-xs text-ink-faint">
-          El JWT dura 15 minutos; la consola lo renueva automáticamente
-          re-intercambiando tu API key guardada en este dispositivo.
+          The JWT lasts 15 minutes; the console renews it automatically by
+          re-exchanging the API key stored on this device.
         </p>
       </Card>
 
       <Card
-        title="Primeros pasos"
-        subtitle="Token + primera transacción de doble partida contra la API real"
+        title="Getting started"
+        subtitle="Token + first double-entry transaction against the real API"
       >
         <div className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
@@ -122,12 +122,12 @@ function LiveDevelopers() {
             </pre>
           </div>
           <p className="text-xs text-ink-faint">
-            Guía completa de 0 a tu primera transacción en{" "}
+            Full guide from zero to your first transaction at{" "}
             <a href="/docs/quickstart" className="text-accent hover:underline">
               /docs/quickstart
             </a>
-            . Los montos son enteros en unidades menores, string-encoded
-            (&quot;10000&quot; = $100.00) — nunca floats.
+            . Amounts are integers in minor units, string-encoded
+            (&quot;10000&quot; = $100.00) — never floats.
           </p>
         </div>
       </Card>
@@ -141,7 +141,7 @@ function DemoDevelopers() {
     <>
       <Card
         title="API keys"
-        subtitle="Las llaves se muestran una sola vez al crearlas; aquí solo el prefijo"
+        subtitle="Keys are shown only once at creation; only the prefix is listed here"
         flush
         actions={
           <span className="group relative inline-block">
@@ -151,24 +151,24 @@ function DemoDevelopers() {
               className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-(--radius-control) border border-edge-strong px-3 text-xs font-medium text-ink-faint opacity-60"
             >
               <Plus size={13} aria-hidden="true" />
-              Crear llave
+              Create key
             </button>
             <span
               role="tooltip"
               className="pointer-events-none absolute top-full right-0 z-10 mt-2 w-56 rounded-lg border border-edge bg-surface-raised px-3 py-2 text-[11px] text-ink-muted opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100"
             >
-              La emisión de llaves adicionales llega pronto; hoy se crean con
-              el signup del sandbox.
+              Issuing additional keys is coming soon; today keys are created
+              through the sandbox signup.
             </span>
           </span>
         }
       >
         <Table>
           <THead>
-            <TH>Nombre</TH>
-            <TH>Prefijo</TH>
-            <TH>Creada</TH>
-            <TH className="text-right">Último uso</TH>
+            <TH>Name</TH>
+            <TH>Prefix</TH>
+            <TH>Created</TH>
+            <TH className="text-right">Last used</TH>
           </THead>
           <TBody>
             {apiKeys.map((apiKey) => (
@@ -189,7 +189,7 @@ function DemoDevelopers() {
                   {apiKey.lastUsedAt ? (
                     formatDateTime(apiKey.lastUsedAt)
                   ) : (
-                    <span className="text-ink-faint">nunca</span>
+                    <span className="text-ink-faint">never</span>
                   )}
                 </TD>
               </TR>
@@ -200,15 +200,15 @@ function DemoDevelopers() {
 
       <Card
         title="Webhook subscriptions"
-        subtitle="Entrega firmada de eventos del envelope v1 vía NATS → webhooks"
+        subtitle="Signed delivery of v1 envelope events via NATS → webhooks"
         flush
       >
         <Table>
           <THead>
             <TH>Endpoint</TH>
             <TH>Topics</TH>
-            <TH>Estado</TH>
-            <TH className="text-right">Creada</TH>
+            <TH>Status</TH>
+            <TH className="text-right">Created</TH>
           </THead>
           <TBody>
             {webhooks.map((subscription) => (
@@ -235,7 +235,7 @@ function DemoDevelopers() {
                     tone={subscription.status === "active" ? "emerald" : "amber"}
                     dot
                   >
-                    {subscription.status === "active" ? "activa" : "pausada"}
+                    {subscription.status === "active" ? "active" : "paused"}
                   </Badge>
                 </TD>
                 <TD className="text-right text-xs whitespace-nowrap">
@@ -264,7 +264,7 @@ export function DevelopersView() {
             Developers
           </h1>
           <p className="mt-0.5 text-sm text-ink-faint">
-            Credenciales, sesión y primeros pasos para integrar LedgerCore
+            Credentials, session and first steps to integrate LedgerCore
           </p>
         </div>
         <DemoBadge demo={live === false} />

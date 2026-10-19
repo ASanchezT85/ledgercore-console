@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     template: "%s · LedgerCore Console",
   },
   description:
-    "Consola de operaciones de LedgerCore: ledgers, transacciones, conciliación y herramientas para desarrolladores.",
+    "LedgerCore operations console: ledgers, transactions, reconciliation and developer tools.",
 };
 
 export default function RootLayout({
@@ -40,7 +40,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
-      lang="es"
+      lang="en"
       className={`${inter.variable} ${instrumentSerif.variable}`}
     >
       <body className="min-h-screen font-sans antialiased">

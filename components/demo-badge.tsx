@@ -13,7 +13,7 @@ export function DemoBadge({ demo }: { demo: boolean }) {
   return (
     <Badge tone="violet" className="gap-1.5">
       <FlaskConical size={11} aria-hidden="true" />
-      datos de demostración
+      demo data
     </Badge>
   );
 }

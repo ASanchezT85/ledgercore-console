@@ -102,8 +102,8 @@ function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
   if (transactions.length === 0) {
     return (
       <EmptyState
-        title="Todavía no hay transacciones"
-        body="Cuando postees tu primer movimiento de doble partida aparecerá aquí, con sus postings y su idempotency key. Este es el curl canónico del depósito 100 / 97 / 3:"
+        title="No transactions yet"
+        body="Once you post your first double-entry transaction it will appear here, with its postings and idempotency key. This is the canonical curl for the 100 / 97 / 3 deposit:"
         curl={FIRST_TXN_CURL}
         curlLabel="POST /v1/transactions"
       />
@@ -124,13 +124,13 @@ function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
             {loadingMore && (
               <ThinkingOrb state="solving" size={20} aria-hidden="true" />
             )}
-            {loadingMore ? "Cargando…" : "Cargar más"}
+            {loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}
       {moreError && (
         <p className="text-center text-xs text-danger">
-          No se pudo cargar la siguiente página. Intenta de nuevo.
+          Could not load the next page. Please try again.
         </p>
       )}
     </>
@@ -145,11 +145,11 @@ export function TransactionsView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">
-            Transacciones
+            Transactions
           </h1>
           <p className="mt-0.5 text-sm text-ink-faint">
-            Movimientos de doble partida: cada transacción balancea débitos y
-            créditos por asset
+            Double-entry activity: every transaction balances debits and
+            credits per asset
           </p>
         </div>
         <DemoBadge demo={state.status === "demo"} />

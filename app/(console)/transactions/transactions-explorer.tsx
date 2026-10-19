@@ -23,7 +23,7 @@ const STATUS_TONE: Record<TransactionStatus, BadgeTone> = {
 
 const STATUS_OPTIONS: Array<{ value: TransactionStatus | "all"; label: string }> =
   [
-    { value: "all", label: "Todos los estados" },
+    { value: "all", label: "All statuses" },
     { value: "posted", label: "Posted" },
     { value: "pending", label: "Pending" },
     { value: "reversed", label: "Reversed" },
@@ -69,7 +69,7 @@ export function TransactionsExplorer({
         <div className="flex flex-wrap items-center gap-3 border-b border-edge px-5 py-3">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-faint">
             <Filter size={13} aria-hidden="true" />
-            Filtros
+            Filters
           </span>
           <select
             className={SELECT_CLASSES}
@@ -77,7 +77,7 @@ export function TransactionsExplorer({
             onChange={(event) =>
               setStatusFilter(event.target.value as TransactionStatus | "all")
             }
-            aria-label="Filtrar por estado"
+            aria-label="Filter by status"
           >
             {STATUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -89,9 +89,9 @@ export function TransactionsExplorer({
             className={SELECT_CLASSES}
             value={assetFilter}
             onChange={(event) => setAssetFilter(event.target.value)}
-            aria-label="Filtrar por asset"
+            aria-label="Filter by asset"
           >
-            <option value="all">Todos los assets</option>
+            <option value="all">All assets</option>
             {assets.map((asset) => (
               <option key={asset} value={asset}>
                 {asset}
@@ -99,18 +99,18 @@ export function TransactionsExplorer({
             ))}
           </select>
           <span className="ml-auto text-xs text-ink-faint">
-            {filtered.length} de {transactions.length} transacciones
+            {filtered.length} of {transactions.length} transactions
           </span>
         </div>
 
         <Table>
           <THead>
             <TH>ID</TH>
-            <TH>Descripción</TH>
+            <TH>Description</TH>
             <TH>Ledger</TH>
-            <TH>Estado</TH>
-            <TH className="text-right">Monto</TH>
-            <TH className="text-right">Fecha</TH>
+            <TH>Status</TH>
+            <TH className="text-right">Amount</TH>
+            <TH className="text-right">Date</TH>
           </THead>
           <TBody>
             {filtered.map((txn) => (
@@ -148,7 +148,7 @@ export function TransactionsExplorer({
 
         {filtered.length === 0 && (
           <p className="px-5 py-10 text-center text-sm text-ink-faint">
-            Ninguna transacción coincide con los filtros seleccionados.
+            No transactions match the selected filters.
           </p>
         )}
       </Card>
@@ -159,7 +159,7 @@ export function TransactionsExplorer({
           <button
             type="button"
             className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-            aria-label="Cerrar detalle"
+            aria-label="Close details"
             onClick={() => setSelectedId(null)}
           />
           <aside className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col overflow-y-auto border-l border-edge bg-surface shadow-2xl">
@@ -178,7 +178,7 @@ export function TransactionsExplorer({
                 variant="ghost"
                 size="sm"
                 onClick={() => setSelectedId(null)}
-                aria-label="Cerrar"
+                aria-label="Close"
               >
                 <X size={16} aria-hidden="true" />
               </Button>
@@ -188,7 +188,7 @@ export function TransactionsExplorer({
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
                   <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-                    Estado
+                    Status
                   </p>
                   <div className="mt-1.5">
                     <Badge tone={STATUS_TONE[selected.status]} dot>
@@ -198,7 +198,7 @@ export function TransactionsExplorer({
                 </div>
                 <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
                   <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-                    Monto principal
+                    Main amount
                   </p>
                   <p className="num mt-1.5 text-sm font-semibold text-ink">
                     {formatMoneyWithAsset(
@@ -212,7 +212,7 @@ export function TransactionsExplorer({
 
               <div>
                 <h3 className="mb-2 text-xs font-semibold tracking-wider text-ink-faint uppercase">
-                  Postings (débito / crédito)
+                  Postings (debit / credit)
                 </h3>
                 <ul className="divide-y divide-edge rounded-lg border border-edge">
                   {selected.postings.map((posting, index) => (
@@ -257,8 +257,8 @@ export function TransactionsExplorer({
                   ))}
                 </ul>
                 <p className="mt-2 text-[11px] text-ink-faint">
-                  Débitos y créditos balancean por asset — invariante del motor
-                  de doble partida.
+                  Debits and credits balance per asset — an invariant of the
+                  double-entry engine.
                 </p>
               </div>
 

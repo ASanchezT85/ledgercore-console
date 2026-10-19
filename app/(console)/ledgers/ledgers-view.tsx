@@ -127,7 +127,7 @@ function TreeBranch({
             )}
             <div className="flex flex-col items-end gap-0.5">
             {node.balances.length === 0 && (
-              <span className="text-xs text-ink-faint">sin movimientos</span>
+              <span className="text-xs text-ink-faint">no activity</span>
             )}
             {node.balances.map((balance) => (
               <span
@@ -183,7 +183,7 @@ function LedgerCard({
           )}
           <Badge tone="slate" className="gap-1">
             <FolderTree size={11} aria-hidden="true" />
-            {accounts.length} cuentas
+            {accounts.length} accounts
           </Badge>
         </span>
       }
@@ -192,9 +192,9 @@ function LedgerCard({
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <BookOpenText size={22} className="text-ink-faint" aria-hidden="true" />
           <p className="text-sm text-ink-muted">
-            Este ledger aún no tiene cuentas. Créalas con{" "}
+            This ledger has no accounts yet. Create them with{" "}
             <code className="font-mono text-xs text-accent">POST /v1/accounts</code>{" "}
-            (guía en{" "}
+            (guide at{" "}
             <a href="/docs/quickstart" className="text-accent hover:underline">
               /docs/quickstart
             </a>
@@ -225,8 +225,8 @@ function LiveLedgers({ data }: { data: LedgerWithAccounts[] }) {
   if (data.length === 0) {
     return (
       <EmptyState
-        title="Aún no hay ledgers en este tenant"
-        body="Un ledger es un libro contable aislado con su propio árbol de cuentas. Crea el primero con este curl y recarga."
+        title="No ledgers in this tenant yet"
+        body="A ledger is an isolated book of accounts with its own account tree. Create the first one with this curl and reload."
         curl={CREATE_LEDGER_CURL}
         curlLabel="POST /v1/ledgers"
       />
@@ -297,7 +297,7 @@ export function LedgersView() {
             Ledgers
           </h1>
           <p className="mt-0.5 text-sm text-ink-faint">
-            Libros contables y árbol de cuentas con balances por asset
+            Ledgers and their account trees with balances per asset
           </p>
         </div>
         <DemoBadge demo={state.status === "demo"} />

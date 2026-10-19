@@ -134,7 +134,7 @@ export function StatementDrawer({
     <div className="fixed inset-0 z-50 flex justify-end">
       <button
         type="button"
-        aria-label="Cerrar"
+        aria-label="Close"
         className="absolute inset-0 cursor-default bg-black/60"
         onClick={onClose}
       />
@@ -142,7 +142,7 @@ export function StatementDrawer({
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold tracking-tight text-ink">
-              Estado de cuenta
+              Account statement
             </h2>
             <p className="mt-0.5 font-mono text-xs text-ink-faint">
               {accountName}
@@ -158,36 +158,36 @@ export function StatementDrawer({
                 <Download size={13} aria-hidden="true" /> CSV
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Cerrar drawer">
+            <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close drawer">
               <X size={14} aria-hidden="true" />
             </Button>
           </div>
         </header>
 
         {state.status === "loading" && (
-          <p className="py-8 text-center text-sm text-ink-faint">Cargando…</p>
+          <p className="py-8 text-center text-sm text-ink-faint">Loading…</p>
         )}
         {state.status === "error" && (
           <p className="py-8 text-center text-sm text-rose-400">
-            No se pudo cargar el statement: {state.message}
+            Could not load the statement: {state.message}
           </p>
         )}
         {state.status === "ready" && (
           <>
             <p className="mb-3 text-xs text-ink-faint">
-              Período{" "}
+              Period{" "}
               {new Date(state.statement.period.from).toLocaleDateString()} —{" "}
-              {new Date(state.statement.period.to).toLocaleDateString()} (últimos
-              30 días)
+              {new Date(state.statement.period.to).toLocaleDateString()} (last
+              30 days)
             </p>
             <BalanceRow
-              label="Balance inicial"
+              label="Opening balance"
               balances={state.statement.opening_balance}
             />
             <ul>
               {state.entries.length === 0 && (
                 <li className="py-6 text-center text-xs text-ink-faint">
-                  Sin movimientos en el período
+                  No activity in this period
                 </li>
               )}
               {state.entries.map((e) => (
@@ -217,7 +217,7 @@ export function StatementDrawer({
                       )}
                     </span>
                     <span className="num text-[11px] text-ink-faint">
-                      saldo{" "}
+                      balance{" "}
                       {formatMoneyWithAsset(
                         BigInt(e.running_balance),
                         e.amount.asset,
@@ -229,7 +229,7 @@ export function StatementDrawer({
               ))}
             </ul>
             <BalanceRow
-              label="Balance final"
+              label="Closing balance"
               balances={state.statement.closing_balance}
             />
           </>

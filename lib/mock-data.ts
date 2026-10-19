@@ -269,7 +269,7 @@ export const mockDashboard: DashboardData = {
   reconHealth: [
     {
       source: "bank_bofa",
-      label: "Bank of America (custodia)",
+      label: "Bank of America (custody)",
       matchedPct: 99.98,
       openDiscrepancies: 1,
       lastRunAt: "2026-07-24T14:00:00Z",
@@ -277,7 +277,7 @@ export const mockDashboard: DashboardData = {
     },
     {
       source: "psp_stripe",
-      label: "Stripe (PSP tarjetas)",
+      label: "Stripe (card PSP)",
       matchedPct: 99.71,
       openDiscrepancies: 2,
       lastRunAt: "2026-07-24T14:00:00Z",
@@ -306,7 +306,7 @@ export const mockLedgers: LedgerSummary[] = [
   {
     id: "main",
     name: "main",
-    description: "Ledger operativo — custodia de clientes y fees",
+    description: "Operating ledger — customer custody and fees",
     accounts: [
       {
         path: "assets/custody/bank/bofa",
@@ -359,7 +359,7 @@ export const mockLedgers: LedgerSummary[] = [
   {
     id: "treasury",
     name: "treasury",
-    description: "Ledger de tesorería — pools FX y capital propio",
+    description: "Treasury ledger — FX pools and own capital",
     accounts: [
       {
         path: "assets/fx/usd-pool",

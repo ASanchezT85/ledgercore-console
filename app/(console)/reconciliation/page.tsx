@@ -19,7 +19,7 @@ import type {
 } from "@/lib/types";
 
 export const metadata: Metadata = {
-  title: "Conciliación",
+  title: "Reconciliation",
 };
 
 export const dynamic = "force-dynamic";
@@ -31,9 +31,9 @@ const RUN_TONE: Record<ReconRunStatus, BadgeTone> = {
 };
 
 const RUN_LABEL: Record<ReconRunStatus, string> = {
-  completed: "completada",
-  running: "en curso",
-  failed: "fallida",
+  completed: "completed",
+  running: "running",
+  failed: "failed",
 };
 
 const TYPE_TONE: Record<DiscrepancyType, BadgeTone> = {
@@ -64,27 +64,27 @@ export default async function ReconciliationPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">
-            Conciliación
+            Reconciliation
           </h1>
           <p className="mt-0.5 text-sm text-ink-faint">
-            Matching automático entre el ledger interno y las fuentes externas
-            (bancos, PSPs, proveedores)
+            Automatic matching between the internal ledger and external sources
+            (banks, PSPs, providers)
           </p>
         </div>
         <DemoBadge demo={demo} />
       </div>
 
       <Card
-        title="Corridas recientes"
-        subtitle="Ventanas de conciliación ejecutadas por el servicio de recon"
+        title="Recent runs"
+        subtitle="Reconciliation windows executed by the recon service"
         flush
       >
         <Table>
           <THead>
             <TH>Run</TH>
-            <TH>Fuente</TH>
-            <TH>Ventana</TH>
-            <TH>Estado</TH>
+            <TH>Source</TH>
+            <TH>Window</TH>
+            <TH>Status</TH>
             <TH className="text-right">Matched</TH>
             <TH className="text-right">Unmatched</TH>
           </THead>
@@ -127,19 +127,19 @@ export default async function ReconciliationPage() {
       </Card>
 
       <Card
-        title="Discrepancias"
-        subtitle="Diferencias detectadas entre ledger y fuente externa"
+        title="Discrepancies"
+        subtitle="Differences detected between the ledger and the external source"
         flush
       >
         <Table>
           <THead>
             <TH>ID</TH>
-            <TH>Fuente</TH>
-            <TH>Tipo</TH>
-            <TH>Referencia externa</TH>
-            <TH className="text-right">Monto</TH>
-            <TH>Estado</TH>
-            <TH className="text-right">Detectada</TH>
+            <TH>Source</TH>
+            <TH>Type</TH>
+            <TH>External reference</TH>
+            <TH className="text-right">Amount</TH>
+            <TH>Status</TH>
+            <TH className="text-right">Detected</TH>
           </THead>
           <TBody>
             {discrepancies.map((discrepancy) => (

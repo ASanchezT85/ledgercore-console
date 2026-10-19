@@ -54,9 +54,9 @@ const HEALTH_TONE: Record<ReconSourceStatus, BadgeTone> = {
 };
 
 const HEALTH_LABEL: Record<ReconSourceStatus, string> = {
-  healthy: "saludable",
-  degraded: "degradado",
-  critical: "crítico",
+  healthy: "healthy",
+  degraded: "degraded",
+  critical: "critical",
 };
 
 const CREATE_LEDGER_CURL = `curl -s -X POST $API/v1/ledgers \\
@@ -72,7 +72,7 @@ function Header({ demo }: { demo: boolean }) {
           Dashboard
         </h1>
         <p className="mt-0.5 text-sm text-ink-faint">
-          Estado operativo del ledger en tiempo real
+          Real-time operational status of the ledger
         </p>
       </div>
       <DemoBadge demo={demo} />
@@ -86,8 +86,8 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
   if (data.ledgers.length === 0) {
     return (
       <EmptyState
-        title="Tu tenant todavía no tiene ledgers"
-        body="Crea tu primer ledger con la API y este dashboard cobrará vida: balances por asset, transacciones recientes y el trial balance verificado."
+        title="Your tenant has no ledgers yet"
+        body="Create your first ledger through the API and this dashboard comes to life: balances per asset, recent transactions and a verified trial balance."
         curl={CREATE_LEDGER_CURL}
         curlLabel="POST /v1/ledgers"
       />
@@ -103,7 +103,7 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
     <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
-          label="Balance custodiado"
+          label="Custody balance"
           value={
             custodyMain
               ? formatMoney(custodyMain.units, custodyMain.asset, custodyMain.exponent)
@@ -111,37 +111,37 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
           }
           hint={
             data.custody.length > 1
-              ? `+ ${data.custody.length - 1} asset(s) más`
+              ? `+ ${data.custody.length - 1} more asset(s)`
               : custodyMain
-                ? `neto posteado en cuentas asset (${custodyMain.asset})`
-                : "sin balances aún"
+                ? `net posted in asset accounts (${custodyMain.asset})`
+                : "no balances yet"
           }
           icon={Vault}
           tone="emerald"
         />
         <StatTile
-          label="Transacciones (24 h)"
+          label="Transactions (24 h)"
           value={formatInt(data.transactionsToday)}
-          hint={`${formatInt(data.transactions.length)} recientes cargadas`}
+          hint={`${formatInt(data.transactions.length)} recent transactions loaded`}
           icon={ArrowLeftRight}
           tone="sky"
         />
         <StatTile
-          label="Ledgers · cuentas"
+          label="Ledgers · accounts"
           value={`${formatInt(data.ledgers.length)} · ${formatInt(data.accountCount)}`}
-          hint="libros y cuentas activas del tenant"
+          hint="active ledgers and accounts in the tenant"
           icon={BookOpenText}
           tone="amber"
         />
         <StatTile
           label="Trial balance"
           value={
-            data.trial === null ? "—" : allBalanced ? "balanceado" : "descuadrado"
+            data.trial === null ? "—" : allBalanced ? "balanced" : "unbalanced"
           }
           hint={
             data.trial === null
-              ? "sin transacciones posteadas"
-              : `ledger ${data.ledgers[0]?.name ?? ""} · débitos = créditos`
+              ? "no posted transactions"
+              : `ledger ${data.ledgers[0]?.name ?? ""} · debits = credits`
           }
           icon={allBalanced || data.trial === null ? Scale : AlertTriangle}
           tone={data.trial === null ? "sky" : allBalanced ? "emerald" : "red"}
@@ -150,8 +150,8 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card
-          title="Últimas transacciones"
-          subtitle="Movimientos más recientes del tenant"
+          title="Latest transactions"
+          subtitle="Most recent activity in the tenant"
           className="xl:col-span-2"
           flush
           actions={
@@ -159,13 +159,13 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
               href="/transactions"
               className="text-xs font-medium text-accent hover:underline"
             >
-              Ver todas →
+              View all →
             </Link>
           }
         >
           {data.transactions.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-ink-faint">
-              Aún no hay transacciones. Postea la primera desde el{" "}
+              No transactions yet. Post the first one from the{" "}
               <Link href="/docs/quickstart" className="text-accent hover:underline">
                 quickstart
               </Link>
@@ -174,10 +174,10 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
           ) : (
             <Table>
               <THead>
-                <TH>Transacción</TH>
-                <TH>Estado</TH>
-                <TH className="text-right">Monto</TH>
-                <TH className="text-right">Fecha</TH>
+                <TH>Transaction</TH>
+                <TH>Status</TH>
+                <TH className="text-right">Amount</TH>
+                <TH className="text-right">Date</TH>
               </THead>
               <TBody>
                 {data.transactions.map((txn) => {
@@ -223,13 +223,13 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
           title="Trial balance"
           subtitle={
             data.trial
-              ? `Ledger ${data.ledgers[0]?.name ?? ""} · débitos vs créditos por asset`
-              : "Se calcula sobre transacciones posteadas"
+              ? `Ledger ${data.ledgers[0]?.name ?? ""} · debits vs credits per asset`
+              : "Computed over posted transactions"
           }
         >
           {data.trial === null || balancedTotals.length === 0 ? (
             <p className="py-6 text-center text-sm text-ink-faint">
-              Sin datos aún: postea una transacción y el reporte aparecerá aquí.
+              No data yet: post a transaction and the report will appear here.
             </p>
           ) : (
             <ul className="space-y-4">
@@ -238,13 +238,13 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-ink">{total.asset}</p>
                     <Badge tone={total.balanced ? "emerald" : "red"} dot>
-                      {total.balanced ? "balanceado" : "descuadrado"}
+                      {total.balanced ? "balanced" : "unbalanced"}
                     </Badge>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     <div className="rounded-lg border border-edge bg-surface-raised px-3 py-2">
                       <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-                        Débitos
+                        Debits
                       </p>
                       <p className="num mt-0.5 text-sm font-medium text-ink">
                         {formatMoney(
@@ -256,7 +256,7 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
                     </div>
                     <div className="rounded-lg border border-edge bg-surface-raised px-3 py-2">
                       <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-                        Créditos
+                        Credits
                       </p>
                       <p className="num mt-0.5 text-sm font-medium text-ink">
                         {formatMoney(
@@ -285,30 +285,30 @@ function DemoDashboardView() {
     <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
-          label="Balance custodiado"
+          label="Custody balance"
           value={formatMoney(stats.custodyUnits, stats.custodyAsset, stats.custodyExponent)}
-          hint={`consolidado en ${stats.custodyAsset}`}
+          hint={`consolidated in ${stats.custodyAsset}`}
           icon={Vault}
           tone="emerald"
         />
         <StatTile
-          label="Transacciones hoy"
+          label="Transactions today"
           value={formatInt(stats.transactionsToday)}
-          hint="posteadas en las últimas 24 h"
+          hint="posted in the last 24 h"
           icon={ArrowLeftRight}
           tone="sky"
         />
         <StatTile
-          label="Discrepancias abiertas"
+          label="Open discrepancies"
           value={formatInt(stats.openDiscrepancies)}
-          hint="pendientes de investigación"
+          hint="pending investigation"
           icon={Scale}
           tone="amber"
         />
         <StatTile
-          label="Proveedores descuadrados"
+          label="Unbalanced providers"
           value={formatInt(stats.unbalancedProviders)}
-          hint="fuera de tolerancia de conciliación"
+          hint="outside reconciliation tolerance"
           icon={AlertTriangle}
           tone="red"
         />
@@ -316,8 +316,8 @@ function DemoDashboardView() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card
-          title="Últimas transacciones"
-          subtitle="Movimientos más recientes en todos los ledgers"
+          title="Latest transactions"
+          subtitle="Most recent activity across all ledgers"
           className="xl:col-span-2"
           flush
           actions={
@@ -325,16 +325,16 @@ function DemoDashboardView() {
               href="/transactions"
               className="text-xs font-medium text-accent hover:underline"
             >
-              Ver todas →
+              View all →
             </Link>
           }
         >
           <Table>
             <THead>
-              <TH>Transacción</TH>
-              <TH>Estado</TH>
-              <TH className="text-right">Monto</TH>
-              <TH className="text-right">Fecha</TH>
+              <TH>Transaction</TH>
+              <TH>Status</TH>
+              <TH className="text-right">Amount</TH>
+              <TH className="text-right">Date</TH>
             </THead>
             <TBody>
               {recentTransactions.map((txn) => (
@@ -365,8 +365,8 @@ function DemoDashboardView() {
         </Card>
 
         <Card
-          title="Salud de conciliación"
-          subtitle="Cobertura de matching por fuente externa"
+          title="Reconciliation health"
+          subtitle="Matching coverage per external source"
         >
           <ul className="space-y-4">
             {reconHealth.map((source) => (
@@ -409,8 +409,9 @@ function DemoDashboardView() {
                   </span>
                 </div>
                 <p className="mt-1.5 text-[11px] text-ink-faint">
-                  {source.openDiscrepancies} discrepancia(s) abierta(s) · última
-                  corrida {formatDateTime(source.lastRunAt)}
+                  {source.openDiscrepancies} open{" "}
+                  {source.openDiscrepancies === 1 ? "discrepancy" : "discrepancies"} · last
+                  run {formatDateTime(source.lastRunAt)}
                 </p>
               </li>
             ))}

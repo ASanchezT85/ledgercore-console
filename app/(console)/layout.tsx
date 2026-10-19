@@ -15,7 +15,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
         </main>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-8 py-4">
           <p className="text-[11px] tracking-wide text-ink-faint">
-            LedgerCore — infraestructura financiera
+            LedgerCore — financial infrastructure
           </p>
           <AuthorCredit />
         </footer>

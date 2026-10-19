@@ -84,7 +84,7 @@ export function LoadingCard({ orb = "searching" }: { orb?: OrbState }) {
     <Card>
       <div className="flex flex-col items-center gap-3 py-10 text-sm text-ink-faint">
         <ThinkingOrb state={orb} size={64} aria-hidden="true" />
-        Cargando datos del tenant…
+        Loading tenant data…
       </div>
     </Card>
   );
@@ -100,10 +100,10 @@ export function ApiDownBanner({ onRetry }: { onRetry: () => void }) {
         <CloudOff size={18} className="shrink-0 text-danger" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium text-ink">
-            No se pudo contactar la API de LedgerCore
+            Could not reach the LedgerCore API
           </p>
           <p className="text-xs text-ink-faint">
-            Tu sesión sigue activa; los datos volverán cuando la API responda.
+            Your session is still active; data will return once the API responds.
           </p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function ApiDownBanner({ onRetry }: { onRetry: () => void }) {
         onClick={onRetry}
         className="h-8 shrink-0 rounded-(--radius-control) border border-edge-strong px-3 text-xs font-medium text-ink hover:border-accent/60 hover:text-accent"
       >
-        Reintentar
+        Retry
       </button>
     </div>
   );
@@ -131,7 +131,7 @@ export function ErrorBanner({
       className="flex items-center justify-between gap-4 rounded-(--radius-card) border border-warning/40 bg-warning/10 px-5 py-4"
     >
       <p className="text-sm text-ink">
-        La API respondió con un error:{" "}
+        The API returned an error:{" "}
         <code className="font-mono text-xs text-warning">{message}</code>
       </p>
       <button
@@ -139,7 +139,7 @@ export function ErrorBanner({
         onClick={onRetry}
         className="h-8 shrink-0 rounded-(--radius-control) border border-edge-strong px-3 text-xs font-medium text-ink hover:border-accent/60 hover:text-accent"
       >
-        Reintentar
+        Retry
       </button>
     </div>
   );
@@ -159,7 +159,7 @@ function CopyButton({ text }: { text: string }) {
       className="inline-flex items-center gap-1 rounded-md border border-edge-strong px-2 py-1 text-[11px] font-medium text-ink-muted hover:text-accent"
     >
       {copied ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
-      {copied ? "Copiado" : "Copiar"}
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
@@ -201,7 +201,7 @@ export function EmptyState({
           </div>
         )}
         <p className="text-xs text-ink-faint">
-          Guía completa paso a paso en{" "}
+          Full step-by-step guide at{" "}
           <a href="/docs/quickstart" className="text-accent hover:underline">
             /docs/quickstart
           </a>

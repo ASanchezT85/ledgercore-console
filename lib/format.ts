@@ -49,41 +49,41 @@ export function formatMoneyWithAsset(
   return `${formatMoney(units, asset, exponent)} ${asset}`;
 }
 
-const MONTHS_ES = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
+const MONTHS_EN = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ] as const;
 
 /**
- * Deterministic UTC date-time formatter ("24 jul 2026, 14:32 UTC").
+ * Deterministic UTC date-time formatter ("Jul 24, 2026, 14:32 UTC").
  * Manual formatting keeps server and client output identical regardless of
  * locale data, avoiding hydration mismatches.
  */
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const month = MONTHS_ES[d.getUTCMonth()] ?? "";
+  const month = MONTHS_EN[d.getUTCMonth()] ?? "";
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${d.getUTCDate()} ${month} ${d.getUTCFullYear()}, ${hh}:${mm} UTC`;
+  return `${month} ${d.getUTCDate()}, ${d.getUTCFullYear()}, ${hh}:${mm} UTC`;
 }
 
-/** Short date without time ("24 jul 2026"). */
+/** Short date without time ("Jul 24, 2026"). */
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const month = MONTHS_ES[d.getUTCMonth()] ?? "";
-  return `${d.getUTCDate()} ${month} ${d.getUTCFullYear()}`;
+  const month = MONTHS_EN[d.getUTCMonth()] ?? "";
+  return `${month} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
 }
 
 /** Integer with thousands separators: 18942 => "18,942". */

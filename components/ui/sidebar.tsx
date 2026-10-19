@@ -26,8 +26,8 @@ import {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/ledgers", label: "Ledgers", icon: BookOpenText },
-  { href: "/transactions", label: "Transacciones", icon: ArrowLeftRight },
-  { href: "/reconciliation", label: "Conciliación", icon: Scale },
+  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/reconciliation", label: "Reconciliation", icon: Scale },
   { href: "/developers", label: "Developers", icon: Code2 },
 ] as const;
 
@@ -62,7 +62,7 @@ export function Sidebar() {
                 >
                   {claims ? claims.tenantId.slice(0, 13) + "…" : "tenant"}
                 </p>
-                <p className="text-[10px] text-ink-faint">tenant · sesión real</p>
+                <p className="text-[10px] text-ink-faint">tenant · live session</p>
               </>
             ) : (
               <>
@@ -82,7 +82,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 px-3" aria-label="Principal">
+      <nav className="flex-1 space-y-0.5 px-3" aria-label="Main">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
@@ -121,10 +121,10 @@ export function Sidebar() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-ink">
-              {live ? "Operador" : "María Fernández"}
+              {live ? "Operator" : "María Fernández"}
             </p>
             <p className="truncate text-[10px] text-ink-faint">
-              {live ? "autenticado con API key" : "finance-ops@acme.com"}
+              {live ? "authenticated with API key" : "finance-ops@acme.com"}
             </p>
           </div>
           <button
@@ -134,7 +134,7 @@ export function Sidebar() {
               router.push("/login");
             }}
             className="text-ink-faint transition-colors hover:text-danger"
-            aria-label="Cerrar sesión"
+            aria-label="Sign out"
           >
             <LogOut size={15} aria-hidden="true" />
           </button>
