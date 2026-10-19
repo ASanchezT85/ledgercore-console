@@ -20,6 +20,8 @@ security:
   - bearerAuth: []
 tags:
   - name: Sources
+  - name: Match rules
+    description: Versioned, immutable rules that say how a run pairs statement rows with ledger entries.
   - name: Imports
   - name: Runs
   - name: Reports
@@ -83,6 +85,93 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /v1/reconciliation/sources/{id}/match-rules:
+    post:
+      operationId: createMatchRule
+      tags: [Match rules]
+      summary: Create a match rule version for a source
+      description: |
+        Match rules say how a run pairs the source's statement rows with
+        ledger entries. Rules are **immutable**: each `POST` creates version
+        n+1 for the source (the first is version 1); to change the logic,
+        create a new version. A run records the version it used.
+
+        A source without rules runs the **built-in rule** (version 0, never
+        stored): 1:1 on the transaction idempotency key, exact amount, any
+        account, which is the behavior before rules existed.
+
+        `one_to_many` (one statement row settles several ledger entries) and
+        `many_to_one` (several statement rows pay one ledger entry) compare
+        sums inside a group, so they require `account_id`: the mirror holds
+        every leg of every transaction and a sum over both legs is
+        meaningless.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchRuleCreate'
+            examples:
+              settlementBatch:
+                summary: 1:N settlement batch grouped by metadata
+                value:
+                  cardinality: one_to_many
+                  group_by: metadata
+                  metadata_key: settlement_id
+                  account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                  amount_tolerance: '0'
+              split:
+                summary: N:1 split payment with a 1 cent tolerance
+                value:
+                  cardinality: many_to_one
+                  account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                  amount_tolerance: '1'
+      responses:
+        '201':
+          description: Rule version created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRule'
+              examples:
+                settlementBatch:
+                  value:
+                    id: 0197f3b4-1c2d-7e3f-8a4b-5c6d7e8f9a0b
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    version: 1
+                    cardinality: one_to_many
+                    group_by: metadata
+                    metadata_key: settlement_id
+                    account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                    amount_tolerance: '0'
+                    created_at: '2026-10-19T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      operationId: listMatchRules
+      tags: [Match rules]
+      summary: List a source's match rule versions
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: All rule versions of the source, newest version first. Not paginated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MatchRule'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/reconciliation/imports:
     post:
       operationId: createImport
@@ -140,8 +229,15 @@ paths:
       tags: [Runs]
       summary: Launch a reconciliation run
       description: |
-        Runs the matcher for one source over all its imported statement rows
-        against the ledger mirror. The run executes synchronously.
+        Runs the matcher for one source over its unmatched statement rows
+        against the ledger entries not yet matched. The run executes
+        synchronously. It uses the source's match rule `rule_version`, or the
+        latest version when omitted (or 0), or the built-in rule when the
+        source has none; the run records the version it used.
+
+        `matched_count` and `unmatched_count` count **statement rows**, not
+        matches: a 1:N match of one row counts 1, an N:1 match of three rows
+        counts 3.
       requestBody:
         required: true
         content:
@@ -154,10 +250,22 @@ paths:
                 source_id:
                   type: string
                   format: uuid
+                rule_version:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                  description: |
+                    Match rule version to run. 0 or omitted means the latest
+                    version of the source, or the built-in rule when it has
+                    none.
             examples:
               daily:
                 value:
                   source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+              pinned:
+                value:
+                  source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                  rule_version: 2
       responses:
         '201':
           description: Run executed.
@@ -170,14 +278,21 @@ paths:
                   value:
                     id: e5f6a7b8-c9d0-7e1f-3a4b-5c6d7e8f9a0b
                     source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    rule_version: 0
                     status: completed
                     matched_count: 118
                     unmatched_count: 2
                     started_at: '2026-07-24T14:00:00Z'
                     finished_at: '2026-07-24T14:00:03Z'
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400':
+          description: Invalid input (`validation_failed`), including a `rule_version` the source does not have.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /v1/reconciliation/runs/{id}:
     get:
@@ -390,6 +505,14 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    Conflict:
+      description: |
+        A statement row or ledger entry of the run was paired by a concurrent
+        run (`conflict`). Nothing was written; retry the run.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   parameters:
     ResourceId:
@@ -504,9 +627,53 @@ components:
           type: string
           format: date-time
 
-    Run:
+    Cardinality:
+      type: string
+      enum: [one_to_one, one_to_many, many_to_one]
+      description: |
+        `one_to_one`: one statement row, one ledger entry. `one_to_many`: one
+        statement row settles several ledger entries (extra rows with the same
+        key are `duplicate`). `many_to_one`: several statement rows pay one
+        ledger entry.
+
+    MatchRuleCreate:
       type: object
-      required: [id, source_id, status, matched_count, unmatched_count, started_at]
+      required: [cardinality]
+      additionalProperties: false
+      properties:
+        cardinality:
+          $ref: '#/components/schemas/Cardinality'
+        group_by:
+          type: string
+          enum: [reference, metadata]
+          default: reference
+          description: |
+            What a statement row's `external_ref` is compared with:
+            `reference` is the transaction idempotency key, `metadata` is
+            the transaction metadata value under `metadata_key` (only on
+            postings mirrored since recon migration 0005).
+        metadata_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Required if and only if `group_by` is `metadata`.
+        account_id:
+          type: string
+          format: uuid
+          description: |
+            Only postings on this ledger account are candidates. Required for
+            `one_to_many` and `many_to_one`.
+        amount_tolerance:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          default: '0'
+          description: |
+            Allowed absolute difference between the sum of the statement rows
+            and the sum of the ledger entries, in minor units, as a string.
+
+    MatchRule:
+      type: object
+      required: [id, source_id, version, cardinality, group_by, metadata_key, account_id, amount_tolerance, created_at]
       properties:
         id:
           type: string
@@ -514,13 +681,50 @@ components:
         source_id:
           type: string
           format: uuid
+        version:
+          type: integer
+          minimum: 1
+          description: Per-source, starts at 1 and grows by one per `POST`.
+        cardinality:
+          $ref: '#/components/schemas/Cardinality'
+        group_by:
+          type: string
+          enum: [reference, metadata]
+        metadata_key:
+          type: [string, 'null']
+        account_id:
+          type: [string, 'null']
+          format: uuid
+        amount_tolerance:
+          type: string
+          description: Minor units, string-encoded.
+        created_at:
+          type: string
+          format: date-time
+
+    Run:
+      type: object
+      required: [id, source_id, rule_version, status, matched_count, unmatched_count, started_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        rule_version:
+          type: integer
+          minimum: 0
+          description: Match rule version the run used; 0 is the built-in rule.
         status:
           type: string
           enum: [pending, running, completed, failed]
         matched_count:
           type: integer
+          description: Statement rows matched by this run (not the number of matches).
         unmatched_count:
           type: integer
+          description: Statement rows left unmatched or disputed by this run.
         started_at:
           type: string
           format: date-time
@@ -563,10 +767,14 @@ components:
         kind:
           type: string
           enum: [missing_internal, missing_external, amount_mismatch, duplicate]
-          description: '`duplicate` is reserved for the v2 matcher; the current matcher never produces it.'
+          description: '`duplicate` flags statement rows repeating a key that a rule allows only once.'
         details:
           type: object
-          description: Free-form context of the mismatch (external ref, amounts, etc.).
+          description: |
+            Free-form context of the mismatch (external ref, amounts, etc.).
+            Includes `rule_version`, the match rule version of the run, and,
+            when an aggregate group (1:N / N:1) failed to match,
+            `group_external_ids`, the ids of all statement rows of the group.
         status:
           $ref: '#/components/schemas/DiscrepancyStatus'
         severity:
