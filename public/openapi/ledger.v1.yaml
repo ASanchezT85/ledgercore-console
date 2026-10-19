@@ -73,6 +73,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/MetadataRejected' }
     get:
       operationId: listLedgers
       tags: [Ledgers]
@@ -135,6 +136,120 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/metadata-policy:
+    put:
+      operationId: setLedgerMetadataPolicy
+      tags: [Ledgers]
+      summary: Set the ledger's metadata allowlist
+      description: |
+        Replaces the metadata keys the ledger accepts: `transaction_keys` on
+        new transactions and holds, `account_keys` on new accounts. A list
+        that is `null` or left out removes that allowlist (any key accepted);
+        an empty list accepts no key. A key outside the list is rejected with
+        422 `metadata_key_not_allowed`. Requires the `ledger:write` scope.
+
+        Every ledger, with or without an allowlist, accepts only scalar
+        values and rejects obvious personal data (see `Metadata`). The policy
+        governs metadata written from then on; what is already stored is not
+        re-judged. The change waits for the writes in flight on the ledger,
+        and writes that commit after it are judged by it.
+
+        Each change leaves an `audit_log` row (`ledger.metadata_policy.update`)
+        with the previous and the new policy, in the same database
+        transaction. Setting the policy the ledger already has is a no-op and
+        audits nothing.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataPolicy'
+            examples:
+              ordersOnly:
+                value:
+                  transaction_keys: [order_id, channel]
+                  account_keys: [customer_id]
+              removeAllowlists:
+                value: {}
+      responses:
+        '200':
+          description: The ledger with its new policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+              examples:
+                ordersOnly:
+                  value:
+                    id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    name: main
+                    environment: sandbox
+                    metadata: {}
+                    metadata_policy:
+                      transaction_keys: [channel, order_id]
+                      account_keys: [customer_id]
+                    created_at: '2026-07-24T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MetadataRejected' }
+
+  /v1/ledgers/{id}/coverage:
+    get:
+      operationId: getLedgerCoverage
+      tags: [Ledgers, Reports]
+      summary: Customer-funds coverage per asset
+      description: |
+        Whether the funds that back customer money cover what is owed to
+        customers, per asset of the ledger:
+
+        - `customer_assets`: posted balance (debits - credits) of the
+          ledger's `asset` accounts with `fund_class: customer` — the bank or
+          safeguarding accounts that hold customer money.
+        - `customer_liabilities`: posted balance (credits - debits) of its
+          `liability` accounts with `fund_class: customer` — wallets and
+          other balances owed to customers.
+        - `covered` is `customer_assets >= customer_liabilities`;
+          `shortfall` is what is missing, `"0"` when covered.
+
+        Only posted balances count (drafts and holds do not), read from the
+        running `account_balances`. Accounts of other types, and `own`
+        accounts, never count. New `liability` accounts default to
+        `customer` and every other type to `own`, so until the backing asset
+        accounts are marked `customer` the report shows the full liability
+        as shortfall. The top-level `covered` is true when every asset is.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: One row per asset with customer-class balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coverage'
+              examples:
+                covered:
+                  value:
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    covered: false
+                    data:
+                      - asset: EUR
+                        exponent: 2
+                        customer_assets: '50000'
+                        customer_liabilities: '42000'
+                        covered: true
+                        shortfall: '0'
+                      - asset: USD
+                        exponent: 2
+                        customer_assets: '5000'
+                        customer_liabilities: '9700'
+                        covered: false
+                        shortfall: '4700'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/accounts:
     post:
       operationId: createAccount
@@ -155,6 +270,7 @@ paths:
                   type: liability
                   normal_balance: CREDIT
                   allow_negative: false
+                  fund_class: customer
                   metadata:
                     customer_id: cust_42
       responses:
@@ -174,6 +290,7 @@ paths:
                     normal_balance: CREDIT
                     status: active
                     allow_negative: false
+                    fund_class: customer
                     postable: true
                     metadata:
                       customer_id: cust_42
@@ -189,7 +306,10 @@ paths:
             (`parent_account_has_activity`). That account would become a
             non-postable parent and could never move those funds again; post
             to a new leaf instead (e.g. `assets:cash:main` beside
-            `assets:cash:usd`, not under an active `assets:cash`).
+            `assets:cash:usd`, not under an active `assets:cash`). Or the
+            metadata is rejected (`metadata_not_scalar`, `metadata_too_large`,
+            `metadata_pii_detected`, `metadata_key_not_allowed`; see
+            `MetadataRejected`).
           content:
             application/json:
               schema:
@@ -243,6 +363,7 @@ paths:
                         normal_balance: CREDIT
                         status: active
                         allow_negative: false
+                        fund_class: customer
                         postable: true
                         metadata: {}
                         created_at: '2026-07-24T12:01:00Z'
@@ -273,6 +394,7 @@ paths:
                     normal_balance: CREDIT
                     status: active
                     allow_negative: false
+                    fund_class: customer
                     postable: true
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
@@ -281,11 +403,12 @@ paths:
     patch:
       operationId: updateAccount
       tags: [Accounts]
-      summary: Freeze, unfreeze or close an account, or change its overdraft policy
+      summary: Freeze, unfreeze or close an account, or change its overdraft policy or fund class
       description: |
-        Changes the account's `status` and/or `allow_negative`; send at least
-        one. Fields left out keep their value. Requires the `ledger:write`
-        scope.
+        Changes the account's `status`, `allow_negative` and/or `fund_class`;
+        send at least one. Fields left out keep their value. Requires the
+        `ledger:write` scope. Every change also leaves an `audit_log` row
+        (`account.update`) with the previous and the new values.
 
         - `active` <-> `frozen` move freely. A frozen account rejects every
           new transaction and hold (422 `account_inactive`); captures and
@@ -328,6 +451,10 @@ paths:
               allowOverdraft:
                 value:
                   allow_negative: true
+              markCustomerFunds:
+                summary: The bank account holds customer money (counts in coverage)
+                value:
+                  fund_class: customer
       responses:
         '200':
           description: The account after the change (or unchanged, if nothing differed).
@@ -345,6 +472,7 @@ paths:
                     normal_balance: CREDIT
                     status: frozen
                     allow_negative: false
+                    fund_class: customer
                     postable: true
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
@@ -584,13 +712,20 @@ paths:
             checked only when the transaction is posted), touches a frozen
             or closed account (`account_inactive`), posts to a parent
             account — one with child accounts under its path
-            (`account_not_postable`), or is dated in a closed accounting
-            period (`period_closed`; see `adjusts_period_id`).
+            (`account_not_postable`), is dated in a closed accounting
+            period (`period_closed`; see `adjusts_period_id`), or carries
+            rejected metadata (`metadata_*`, see `MetadataRejected`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               examples:
+                metadataPII:
+                  value:
+                    error:
+                      code: metadata_pii_detected
+                      message: 'domain: metadata looks like personal data: the value of key "note" looks like an email address'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
                 unbalanced:
                   value:
                     error:
@@ -1007,8 +1142,10 @@ paths:
           description: |
             Insufficient available balance to place the hold
             (`insufficient_funds`), the account is frozen or closed
-            (`account_inactive`), or it is a parent account
-            (`account_not_postable`).
+            (`account_inactive`), it is a parent account
+            (`account_not_postable`), or the metadata is rejected
+            (`metadata_*`, see `MetadataRejected`; holds follow the ledger's
+            `transaction_keys`).
           content:
             application/json:
               schema:
@@ -1287,6 +1424,7 @@ paths:
                       normal_balance: CREDIT
                       status: active
                       allow_negative: false
+                      fund_class: customer
                       postable: true
                       metadata: {}
                       created_at: '2026-05-01T09:00:00Z'
@@ -1501,6 +1639,35 @@ components:
                   code: period_closed
                   message: 'domain: accounting period is closed: period 0a1b2c3d-4e5f-7a8b-9c0d-1e2f3a4b5c6d (2026-09) is hard_closed'
                   request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+    MetadataRejected:
+      description: |
+        The metadata is rejected. The message names the key (unless the key
+        itself looks like personal data) and never the value.
+
+        - `metadata_not_scalar`: a value is an object, an array or null.
+        - `metadata_too_large`: more than 50 keys, a key of 0 or more than
+          64 bytes, or a value of more than 500 bytes.
+        - `metadata_pii_detected`: a key or value looks like an email, a card
+          number, a phone number or an IBAN, in every ledger.
+        - `metadata_key_not_allowed`: the key is outside the ledger's
+          allowlist (`PUT /v1/ledgers/{id}/metadata-policy`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            keyNotAllowed:
+              value:
+                error:
+                  code: metadata_key_not_allowed
+                  message: 'domain: metadata key is not allowed in this ledger: key "channel"'
+                  request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+            pii:
+              value:
+                error:
+                  code: metadata_pii_detected
+                  message: 'domain: metadata looks like personal data: the value of key "note" looks like a card number'
+                  request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
     Conflict:
       description: Uniqueness conflict.
       content:
@@ -1532,7 +1699,9 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                period_closed, rate_limited,
+                period_closed, metadata_not_scalar, metadata_too_large,
+                metadata_pii_detected, metadata_key_not_allowed,
+                rate_limited,
                 service_unavailable, internal.
             message:
               type: string
@@ -1594,10 +1763,25 @@ components:
     Metadata:
       type: object
       maxProperties: 50
+      propertyNames:
+        minLength: 1
+        maxLength: 64
       additionalProperties:
-        type: string
-        maxLength: 500
-      description: Free-form string key/value pairs attached by the tenant.
+        oneOf:
+          - type: string
+            maxLength: 500
+          - type: number
+          - type: boolean
+      description: |
+        Flat key/value pairs attached by the tenant. Values must be scalars:
+        strings, numbers or booleans (objects, arrays and null are 422
+        `metadata_not_scalar`). Numbers and booleans are stored and returned
+        as their JSON text (`10.50` -> `"10.50"`, `true` -> `"true"`), so
+        responses always carry strings. Keys or values that look like an
+        email, a card number (Luhn), a phone number (`+` and 8-15 digits) or
+        an IBAN (mod 97) are rejected in every ledger (422
+        `metadata_pii_detected`); a ledger's `metadata_policy` can restrict
+        the keys too. See docs/metadata-y-cobertura.md.
 
     LedgerCreate:
       type: object
@@ -1631,9 +1815,74 @@ components:
           description: Taken from the `env` claim of the creating token; not client-settable.
         metadata:
           $ref: '#/components/schemas/Metadata'
+        metadata_policy:
+          $ref: '#/components/schemas/MetadataPolicy'
         created_at:
           type: string
           format: date-time
+
+    MetadataPolicy:
+      type: object
+      additionalProperties: false
+      description: |
+        The ledger's metadata allowlists. `null` (the default for every
+        ledger): no allowlist, any key accepted. An empty list accepts no
+        key. Keys come back sorted and without duplicates.
+      properties:
+        transaction_keys:
+          type: [array, 'null']
+          maxItems: 64
+          items: { type: string, minLength: 1, maxLength: 64 }
+          description: Keys accepted on new transactions and holds.
+        account_keys:
+          type: [array, 'null']
+          maxItems: 64
+          items: { type: string, minLength: 1, maxLength: 64 }
+          description: Keys accepted on new accounts.
+
+    FundClass:
+      type: string
+      enum: [customer, own]
+      description: |
+        Whose money the account holds: `customer` (held for or owed to
+        customers) or `own` (the operator's money). Only `asset` and
+        `liability` accounts enter the coverage report
+        (`GET /v1/ledgers/{id}/coverage`). Defaults to `customer` for
+        `liability` accounts and `own` for every other type; accounts that
+        existed before this field got the same default.
+
+    Coverage:
+      type: object
+      required: [ledger_id, covered, data]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        covered:
+          type: boolean
+          description: True when every asset is covered.
+        data:
+          type: array
+          items:
+            type: object
+            required: [asset, exponent, customer_assets, customer_liabilities, covered, shortfall]
+            properties:
+              asset:
+                $ref: '#/components/schemas/AssetCode'
+              exponent:
+                type: integer
+              customer_assets:
+                type: string
+                description: Posted debits - credits of the customer-class asset accounts, minor units.
+              customer_liabilities:
+                type: string
+                description: Posted credits - debits of the customer-class liability accounts, minor units.
+              covered:
+                type: boolean
+                description: customer_assets >= customer_liabilities.
+              shortfall:
+                type: string
+                description: customer_liabilities - customer_assets when not covered, "0" otherwise.
 
     AccountCreate:
       type: object
@@ -1669,6 +1918,8 @@ components:
             (customer wallets: money the ledger owes) and `true` for every
             other type, which routinely carry contra balances. Accounts that
             existed before this field are `true`.
+        fund_class:
+          $ref: '#/components/schemas/FundClass'
         metadata:
           $ref: '#/components/schemas/Metadata'
 
@@ -1683,10 +1934,12 @@ components:
         allow_negative:
           type: boolean
           description: Overdraft policy; see `AccountCreate.allow_negative`.
+        fund_class:
+          $ref: '#/components/schemas/FundClass'
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, postable, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, postable, created_at]
       properties:
         id:
           type: string
@@ -1705,6 +1958,8 @@ components:
         allow_negative:
           type: boolean
           description: Overdraft policy; see `AccountCreate.allow_negative`.
+        fund_class:
+          $ref: '#/components/schemas/FundClass'
         postable:
           type: boolean
           readOnly: true
