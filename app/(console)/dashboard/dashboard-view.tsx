@@ -45,6 +45,7 @@ const TXN_STATUS_TONE: Record<TransactionStatus | ApiTxnStatus, BadgeTone> = {
   pending: "amber",
   draft: "amber",
   reversed: "red",
+  discarded: "slate",
 };
 
 const HEALTH_TONE: Record<ReconSourceStatus, BadgeTone> = {

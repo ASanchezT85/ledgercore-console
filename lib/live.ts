@@ -19,7 +19,7 @@ export interface Money {
 }
 
 export type Direction = "DEBIT" | "CREDIT";
-export type ApiTxnStatus = "draft" | "posted" | "reversed";
+export type ApiTxnStatus = "draft" | "posted" | "reversed" | "discarded";
 export type AccountType =
   | "asset"
   | "liability"

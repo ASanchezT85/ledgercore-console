@@ -19,6 +19,7 @@ const STATUS_TONE: Record<TransactionStatus, BadgeTone> = {
   posted: "emerald",
   pending: "amber",
   reversed: "red",
+  discarded: "slate",
 };
 
 const STATUS_OPTIONS: Array<{ value: TransactionStatus | "all"; label: string }> =
@@ -27,6 +28,7 @@ const STATUS_OPTIONS: Array<{ value: TransactionStatus | "all"; label: string }>
     { value: "posted", label: "Posted" },
     { value: "pending", label: "Pending" },
     { value: "reversed", label: "Reversed" },
+    { value: "discarded", label: "Discarded" },
   ];
 
 const SELECT_CLASSES =

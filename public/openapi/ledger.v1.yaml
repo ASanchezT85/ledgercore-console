@@ -25,7 +25,7 @@ tags:
   - name: Accounts
     description: Accounts hold balances per asset and receive postings.
   - name: Transactions
-    description: Balanced sets of postings. Lifecycle draft -> posted -> reversed.
+    description: Balanced sets of postings. Lifecycle draft -> posted -> reversed; a draft can instead be discarded.
   - name: Holds
     description: Two-phase authorizations that reserve funds before capture.
   - name: Periods
@@ -423,7 +423,7 @@ paths:
         - Only an **empty** account can be closed: zero posted balance, no
           active holds and no draft transactions pending in every asset it
           has touched. Otherwise 409 `conflict` — drain it, release or capture
-          its holds and post its drafts first.
+          its holds and post or discard its drafts first.
         - Lowering `allow_negative` to `false` on an account that is already
           below zero is accepted: it can be refilled but not taken lower.
         - Only a postable account can be changed. A parent (`postable:
@@ -622,7 +622,8 @@ paths:
       description: |
         Creates a balanced transaction. With `status=posted` (default) it is
         atomically validated and posted; with `status=draft` it can be posted
-        later via `POST /v1/transactions/{id}/post`.
+        later via `POST /v1/transactions/{id}/post` or abandoned via
+        `POST /v1/transactions/{id}/discard`.
 
         `idempotency_key` is unique per tenant: retrying with the same key
         returns the original transaction instead of creating a duplicate
@@ -846,7 +847,10 @@ paths:
       operationId: postTransaction
       tags: [Transactions]
       summary: Post a draft transaction
-      description: Transitions a draft transaction to posted. Idempotent for already-posted transactions.
+      description: |
+        Transitions a draft transaction to posted. Idempotent for
+        already-posted transactions. A reversed or discarded transaction
+        cannot be posted (409 `conflict`). Requires the `ledger:write` scope.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       responses:
@@ -875,7 +879,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
-          description: The transaction is reversed and cannot be posted.
+          description: The transaction is reversed or discarded and cannot be posted.
           content:
             application/json:
               schema:
@@ -886,6 +890,74 @@ paths:
                     error:
                       code: conflict
                       message: transaction is reversed and cannot be posted
+                discarded:
+                  value:
+                    error:
+                      code: conflict
+                      message: transaction is discarded and cannot be posted
+
+  /v1/transactions/{id}/discard:
+    post:
+      operationId: discardTransaction
+      tags: [Transactions]
+      summary: Discard a draft transaction
+      description: |
+        Transitions a `draft` to the terminal status `discarded`: its pending
+        amounts are released from the accounts' balances, it never receives a
+        journal number and never enters the hash chain, and the call leaves an
+        `audit_log` row (`transaction.discard`). Emits
+        `ledger.transaction.discarded`. The postings stay (they are
+        append-only) and are excluded by the status. No request body.
+
+        Allowed even when the draft's `effective_at` falls in a soft- or
+        hard-closed accounting period: it is the way out for a draft stuck
+        there. Idempotent: discarding an already-discarded transaction returns
+        it unchanged. A posted or reversed transaction cannot be discarded
+        (409 `conflict`); reverse a posted one instead. Requires the
+        `ledger:write` scope.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The transaction, now discarded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+              examples:
+                discarded:
+                  value:
+                    id: 3c2d8e0f-1a2b-7c4d-9e5f-7a8b9c0d1e2f
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    idempotency_key: dep-2026-0001
+                    description: Customer USD deposit
+                    status: discarded
+                    postings: []
+                    metadata: {}
+                    reversed_by: null
+                    reverses: null
+                    effective_at: '2026-07-24T12:05:00Z'
+                    created_at: '2026-07-24T12:05:00Z'
+                    posted_at: null
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The transaction is posted or reversed and cannot be discarded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                posted:
+                  value:
+                    error:
+                      code: conflict
+                      message: transaction is posted and cannot be discarded
+                reversed:
+                  value:
+                    error:
+                      code: conflict
+                      message: transaction is reversed and cannot be discarded
 
   /v1/transactions/{id}/reverse:
     post:
@@ -2029,7 +2101,12 @@ components:
 
     TransactionStatus:
       type: string
-      enum: [draft, posted, reversed]
+      enum: [draft, posted, reversed, discarded]
+      description: |
+        `draft` and `discarded` rows are staging, not financial facts: only
+        `posted` and `reversed` carry a journal number and enter the hash
+        chain. `discarded` is terminal (a draft that was abandoned with
+        `POST /v1/transactions/{id}/discard`).
 
     AccountType:
       type: string

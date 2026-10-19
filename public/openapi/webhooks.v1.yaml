@@ -368,6 +368,7 @@ components:
       enum:
         - ledger.transaction.posted
         - ledger.transaction.reversed
+        - ledger.transaction.discarded
         - ledger.hold.created
         - ledger.hold.captured
         - ledger.hold.released

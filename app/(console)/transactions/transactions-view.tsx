@@ -55,8 +55,8 @@ function toViewTransaction(
     status:
       txn.status === "draft"
         ? "pending"
-        : txn.status === "reversed"
-          ? "reversed"
+        : txn.status === "reversed" || txn.status === "discarded"
+          ? txn.status
           : "posted",
     amountUnits: BigInt(main.amount),
     asset: main.asset,

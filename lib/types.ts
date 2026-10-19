@@ -3,7 +3,7 @@
 
 /** Shared domain types used by the console pages and the API layer. */
 
-export type TransactionStatus = "posted" | "pending" | "reversed";
+export type TransactionStatus = "posted" | "pending" | "reversed" | "discarded";
 
 export interface AssetBalance {
   asset: string;
