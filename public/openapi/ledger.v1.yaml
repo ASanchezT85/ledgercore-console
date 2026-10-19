@@ -30,6 +30,11 @@ tags:
     description: Two-phase authorizations that reserve funds before capture.
   - name: Periods
     description: Accounting periods of a ledger. Lifecycle open -> soft_closed -> hard_closed.
+  - name: AdjustmentRequests
+    description: |
+      Maker-checker for adjustments. Lifecycle pending -> approved -> executed,
+      or rejected / cancelled. Every adjustment (`adjusts_period_id`) is
+      written by executing a request two other actors approved.
   - name: Reports
     description: Accounting reports.
 
@@ -713,8 +718,10 @@ paths:
             or closed account (`account_inactive`), posts to a parent
             account — one with child accounts under its path
             (`account_not_postable`), is dated in a closed accounting
-            period (`period_closed`; see `adjusts_period_id`), or carries
-            rejected metadata (`metadata_*`, see `MetadataRejected`).
+            period (`period_closed`; see `adjusts_period_id`), is an
+            adjustment sent without an approved adjustment request
+            (`approval_required`), or carries rejected metadata
+            (`metadata_*`, see `MetadataRejected`).
           content:
             application/json:
               schema:
@@ -1070,6 +1077,287 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /v1/adjustment-requests:
+    post:
+      operationId: createAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Propose an adjustment (maker)
+      description: |
+        Records the complete proposed adjustment — postings, metadata,
+        `effective_at`, `adjusts_period_id` — made by the calling identity (the
+        maker), in status `pending`. It is judged now as a transaction would
+        be (accounts, metadata allowlist, period rules) and again when it is
+        executed. The server computes `request_hash` (SHA-256 of its canonical
+        form, see docs/maker-checker.md); after that the content never
+        changes. Two other identities must approve that hash before the
+        request can be executed. Requires `ledger:write`.
+
+        `idempotency_key` is unique per tenant: the same key and content
+        replays the request (200 + `X-Idempotent-Replay: true`); the same key
+        with other content is 409 `idempotency_conflict`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Alternative to the `idempotency_key` body field (the body field wins).
+          schema:
+            type: string
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustmentRequestCreate'
+            examples:
+              softClosedCorrection:
+                summary: Book a missed USD 50 fee into the soft-closed September
+                value:
+                  ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                  idempotency_key: adj-2026-09-0001
+                  description: Missed September fee
+                  effective_at: '2026-09-30T23:00:00Z'
+                  adjusts_period_id: 0a1b2c3d-4e5f-7a8b-9c0d-1e2f3a4b5c6d
+                  postings:
+                    - account_id: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                      direction: DEBIT
+                      amount: { asset: USD, amount: '5000' }
+                    - account_id: 6f5a1b3c-4d5e-7f80-c193-0b1c2d3e4f5a
+                      direction: CREDIT
+                      amount: { asset: USD, amount: '5000' }
+      responses:
+        '201':
+          description: The request, pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '200':
+          description: Idempotent replay — the request already existed for this key and content.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: |
+            The proposal would be refused as a transaction: unbalanced,
+            inactive or parent account, closed period (`period_closed`) or
+            rejected metadata (`metadata_*`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      operationId: listAdjustmentRequests
+      tags: [AdjustmentRequests]
+      summary: List a ledger's adjustment requests
+      description: Newest first. `status=pending` lists what checkers have to review. Requires `ledger:read`.
+      parameters:
+        - name: ledger_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdjustmentStatus'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of adjustment requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdjustmentRequest'
+                  next_cursor:
+                    type: [string, 'null']
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/adjustment-requests/{id}:
+    get:
+      operationId: getAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Get an adjustment request
+      description: The request with its approvals. Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The adjustment request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/adjustment-requests/{id}/approve:
+    post:
+      operationId: approveAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Approve an adjustment request (checker)
+      description: |
+        Records the calling identity's approval of the `request_hash` it
+        reviewed. The maker cannot approve (403 `self_approval`), an identity
+        approves once (409 `conflict`), and the hash must be the request's
+        (409 `request_hash_mismatch`). The second approval moves the request
+        to `approved`. Only a `pending` request takes approvals. Audited.
+        Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_hash]
+              additionalProperties: false
+              properties:
+                request_hash:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+                  description: The `request_hash` the approver reviewed, hex-encoded.
+      responses:
+        '200':
+          description: The request, with the new approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: The maker cannot approve their own request (`self_approval`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The hash is not the request's (`request_hash_mismatch`), this
+            identity already approved, or the request is not pending
+            (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/adjustment-requests/{id}/reject:
+    post:
+      operationId: rejectAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Reject a pending adjustment request
+      description: |
+        `pending` -> `rejected`, final. Stopping a request moves no money, so
+        any identity with `ledger:write` may do it; rejecting a rejected
+        request is a no-op. Audited.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The request, rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/adjustment-requests/{id}/cancel:
+    post:
+      operationId: cancelAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Cancel a pending or approved adjustment request
+      description: |
+        `pending` or `approved` -> `cancelled`, final (e.g. the period was
+        hard-closed after the approvals). Cancelling a cancelled request is a
+        no-op. Audited. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The request, cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustmentRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/adjustment-requests/{id}/execute:
+    post:
+      operationId: executeAdjustmentRequest
+      tags: [AdjustmentRequests]
+      summary: Execute an approved adjustment request
+      description: |
+        Writes the request's transaction, posted, through the normal path
+        (period rules, metadata allowlist, overdraft, journal hash chain), with
+        idempotency key `adjustment-request:<id>`, and links request and
+        transaction (`transaction_id`). Exactly once: a repeated or concurrent
+        execution returns the same transaction (200 +
+        `X-Idempotent-Replay: true`). If the transaction is refused (e.g. the
+        period was hard-closed meanwhile) the request stays `approved`.
+        Audited. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '201':
+          description: The adjustment transaction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '200':
+          description: Already executed — the transaction written by the first execution.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The request is not approved (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422': { $ref: '#/components/responses/MovementRejected' }
 
   /v1/holds:
     post:
@@ -1699,7 +1987,8 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                period_closed, metadata_not_scalar, metadata_too_large,
+                period_closed, approval_required, self_approval,
+                request_hash_mismatch, metadata_not_scalar, metadata_too_large,
                 metadata_pii_detected, metadata_key_not_allowed,
                 rate_limited,
                 service_unavailable, internal.
@@ -2120,6 +2409,10 @@ components:
             not exist in the ledger; 400 `validation_failed` when it is open
             or starts after `effective_at`.
 
+            An adjustment is only written by executing an approved adjustment
+            request (`POST /v1/adjustment-requests`): sent here, a valid
+            adjustment is refused with 422 `approval_required`.
+
     Transaction:
       type: object
       required: [id, ledger_id, idempotency_key, status, postings, metadata, reversed_by, reverses, effective_at, created_at, posted_at]
@@ -2221,6 +2514,115 @@ components:
           format: date-time
         status:
           $ref: '#/components/schemas/PeriodStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AdjustmentStatus:
+      type: string
+      enum: [pending, approved, executed, rejected, cancelled]
+
+    AdjustmentRequestCreate:
+      type: object
+      required: [ledger_id, effective_at, postings]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Required; may come in the `Idempotency-Key` header instead.
+        reference:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1024
+        effective_at:
+          type: string
+          format: date-time
+          description: Required — the date is part of what is approved.
+        adjusts_period_id:
+          type: string
+          format: uuid
+          description: |
+            The closed period this adjustment corrects (same rules as on
+            `TransactionCreate`). Optional: a request without it executes as a
+            regular entry that still went through four eyes.
+        postings:
+          type: array
+          minItems: 2
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Posting'
+          description: Must balance per asset.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+
+    AdjustmentApproval:
+      type: object
+      required: [approver, request_hash, approved_at]
+      properties:
+        approver:
+          type: string
+          description: Identity that approved (e.g. `api_key:<id>`).
+        request_hash:
+          type: string
+          description: The hash approved, hex-encoded.
+        approved_at:
+          type: string
+          format: date-time
+
+    AdjustmentRequest:
+      type: object
+      required: [id, ledger_id, idempotency_key, status, request_hash, maker, effective_at, adjusts_period_id, metadata, postings, approvals, transaction_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+        status:
+          $ref: '#/components/schemas/AdjustmentStatus'
+        request_hash:
+          type: string
+          description: SHA-256 of the canonical form of the request, hex-encoded. Approvers send it back to approve.
+        maker:
+          type: string
+          description: Identity that created the request (e.g. `api_key:<id>`).
+        reference:
+          type: string
+        description:
+          type: string
+        effective_at:
+          type: string
+          format: date-time
+        adjusts_period_id:
+          type: [string, 'null']
+          format: uuid
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        postings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Posting'
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdjustmentApproval'
+        transaction_id:
+          type: [string, 'null']
+          format: uuid
+          description: The transaction written by the execution, once `executed`.
         created_at:
           type: string
           format: date-time

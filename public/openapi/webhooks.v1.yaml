@@ -348,7 +348,8 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                period_closed, rate_limited,
+                period_closed, approval_required, self_approval,
+                request_hash_mismatch, rate_limited,
                 service_unavailable, internal.
             message:
               type: string
