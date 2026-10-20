@@ -10,7 +10,8 @@ info:
     `recon.discrepancy.detected` events.
 
     All routes live under the `/v1/reconciliation` prefix (the gateway routes
-    that prefix to this service). The tenant is derived from the JWT.
+    that prefix to this service). The tenant is derived from the JWT, except
+    on the signed public callback route, which names it in the path.
 servers:
   - url: http://localhost:8083
     description: Local development (direct)
@@ -404,10 +405,10 @@ paths:
         `amount` (minor units, string) and `asset`, plus an optional
         `direction`; anything else in `data` is kept as sent.
 
-        This route is behind the platform's JWT (`reconciliation:write`):
-        the tenant's integration receives the provider's webhook, verifies
-        the provider's signature with the provider's secret, maps the event to
-        this shape and relays it. Reconciliation holds no provider secrets.
+        This route is behind the platform's JWT (`reconciliation:write`), for
+        a tenant integration that relays the provider's events. A provider can
+        also deliver directly, signed with the source's callback secret, to
+        `receivePublicCallback` (ADR-017); both routes share this inbox.
         Stored events cannot be changed except for their duplicate counter.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -544,6 +545,145 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/reconciliation/sources/{id}/callback-secret:
+    post:
+      operationId: rotateCallbackSecret
+      tags: [Callbacks]
+      summary: Create or rotate a source's callback signing secret
+      description: |
+        Generates a new signing secret for the source's public callback route
+        (ADR-017) and returns it **once**; it is stored only encrypted
+        (AES-256-GCM) and never shown again. Needs `reconciliation:write`.
+
+        - First call: `201`, `previous_expires_at` is `null`.
+        - Later calls rotate: `200`. The old secret keeps verifying until
+          `previous_expires_at` (24 h), so the provider can switch keys
+          without losing events. A second rotation inside the window drops
+          the oldest secret at once.
+
+        Each call is written to the audit log without the secret.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '201':
+          description: First secret of the source.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallbackSecret'
+        '200':
+          description: Secret rotated; the previous one verifies until `previous_expires_at`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CallbackSecret'
+              examples:
+                rotated:
+                  value:
+                    source_id: 0197f3e7-1a2b-7c3d-8e4f-5a6b7c8d9e0f
+                    secret: lccb_EXAMPLE-ONLY-not-a-real-secret-000000000
+                    previous_expires_at: '2026-10-20T09:30:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: The token lacks `reconciliation:write` (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: The service has no `LEDGERCORE_MASTER_KEY`, so it cannot seal secrets (`service_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/reconciliation/public/{tenant_id}/sources/{source_id}/callbacks:
+    post:
+      operationId: receivePublicCallback
+      tags: [Callbacks]
+      summary: Deliver a provider callback signed with the source's secret
+      description: |
+        Provider-facing twin of `receiveCallback` (ADR-017). It takes **no
+        JWT**: the source's callback secret (`rotateCallbackSecret`)
+        authenticates the request. Send
+
+        - `LedgerCore-Timestamp`: unix seconds, within 300 s of the server
+          clock;
+        - `LedgerCore-Signature`: `v1=<hex HMAC-SHA256(secret, timestamp + "." + raw_body)>`.
+          Several comma-separated `v1=` values are accepted, so during a
+          rotation the provider can sign with both secrets.
+
+        The MAC covers the exact bytes sent. Once verified, the body is the
+        same canonical callback as `receiveCallback`, with the same answers:
+        `201` new, `200` duplicate, `409` same `event_id` with another
+        payload, `400` invalid body.
+
+        Every authentication failure (malformed ids, unknown tenant or source,
+        no secret, missing or malformed headers, stale timestamp, wrong
+        signature) gets the same `401`, so the route reveals nothing about
+        which part was wrong.
+      security: []
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: source_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: LedgerCore-Timestamp
+          in: header
+          required: true
+          schema: { type: string, pattern: '^[0-9]+$' }
+          example: '1792402200'
+        - name: LedgerCore-Signature
+          in: header
+          required: true
+          schema: { type: string }
+          example: v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallbackCreate'
+      responses:
+        '201':
+          description: New event stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Callback'
+        '200':
+          description: Redelivery of a known event with the same canonical payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Callback'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: The request could not be authenticated (`unauthorized`). Same body for every reason.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                rejected:
+                  value:
+                    error:
+                      code: unauthorized
+                      message: callback signature is missing or invalid
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '409':
+          description: The source already has that `event_id` with a different payload (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/reconciliation/imports:
     post:
@@ -1306,6 +1446,18 @@ components:
           type: string
           format: date-time
 
+    CallbackSecret:
+      type: object
+      required: [source_id, secret, previous_expires_at]
+      properties:
+        source_id: { type: string, format: uuid }
+        secret:
+          type: string
+          description: '`lccb_` + base64url of 32 random bytes. Shown only in this response.'
+        previous_expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: Until when the previous secret still verifies; `null` on the first secret.
     Run:
       type: object
       required: [id, source_id, rule_version, status, matched_count, unmatched_count, started_at]
