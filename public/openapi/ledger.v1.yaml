@@ -1459,8 +1459,11 @@ paths:
         `idempotency_key` is unique per tenant: retrying with the same key
         returns the original hold (200 + `X-Idempotent-Replay: true`).
 
-        Note: automatic release of expired holds (sweeper) is not implemented
-        yet (fase 1.5); `expires_at` is stored and enforced at capture time.
+        At `expires_at` the hold expires (ADR-016): a sweeper in ledger-core
+        (every `LEDGERCORE_HOLD_SWEEP_INTERVAL`, default 1m) moves it to
+        `expired`, frees the reservation and emits `ledger.hold.expired`.
+        Until then the funds stay reserved, but a capture or release past
+        `expires_at` is already 409 `hold_expired` (and frees them at once).
       requestBody:
         required: true
         content:
@@ -1573,6 +1576,8 @@ paths:
         transaction that moved the money. A partial capture releases the
         remainder. Capture does not create the transaction itself — post it
         via `POST /v1/transactions` and link it with `transaction_id`.
+        A hold past `expires_at` is 409 `hold_expired`, whether or not the
+        sweeper has already marked it `expired`.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
@@ -1619,7 +1624,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: The hold is not active.
+          description: The hold is not active (`conflict`) or has expired (`hold_expired`).
           content:
             application/json:
               schema:
@@ -1630,13 +1635,21 @@ paths:
                     error:
                       code: conflict
                       message: hold is already released
+                expired:
+                  value:
+                    error:
+                      code: hold_expired
+                      message: 'domain: hold has expired: hold 8b7c3d5e-6f7a-7b8c-e3b5-2d3e4f5a6b7c expired at 2026-07-31T00:00:00Z'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/holds/{id}/release:
     post:
       operationId: releaseHold
       tags: [Holds]
       summary: Release a hold
-      description: Frees the reserved funds without moving money.
+      description: |
+        Frees the reserved funds without moving money. A hold past
+        `expires_at` is 409 `hold_expired` (its funds are freed by expiry).
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       responses:
@@ -1662,7 +1675,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: The hold is not active.
+          description: The hold is not active (`conflict`) or has expired (`hold_expired`).
           content:
             application/json:
               schema:
@@ -1673,6 +1686,12 @@ paths:
                     error:
                       code: conflict
                       message: hold is already captured
+                expired:
+                  value:
+                    error:
+                      code: hold_expired
+                      message: 'domain: hold has expired: hold 8b7c3d5e-6f7a-7b8c-e3b5-2d3e4f5a6b7c expired at 2026-07-31T00:00:00Z'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/fx-quotes:
     post:
@@ -2673,7 +2692,8 @@ components:
                 account_not_postable, parent_account_has_activity,
                 period_closed, fx_quote_expired, fx_rate_mismatch,
                 transfer_unbalanced, approval_required, self_approval,
-                request_hash_mismatch, metadata_not_scalar, metadata_too_large,
+                request_hash_mismatch, hold_expired, metadata_not_scalar,
+                metadata_too_large,
                 metadata_pii_detected, metadata_key_not_allowed,
                 rate_limited,
                 service_unavailable, internal.
@@ -2738,6 +2758,10 @@ components:
     HoldStatus:
       type: string
       enum: [active, captured, released, expired]
+      description: |
+        `active` reserves funds; `captured`, `released` and `expired` are
+        terminal. The sweeper moves an active hold past `expires_at` to
+        `expired` (ADR-016).
 
     Metadata:
       type: object
@@ -3084,7 +3108,8 @@ components:
             transaction must lower the held account in the held asset; the
             captured amount is that decrease, capped at the hold, and any
             remainder is released. Emits `ledger.hold.captured`. A hold that is
-            not active is 409 `conflict`. Part of the idempotency fingerprint.
+            not active is 409 `conflict`; one past `expires_at` is 409
+            `hold_expired` (ADR-016). Part of the idempotency fingerprint.
         adjusts_period_id:
           type: string
           format: uuid

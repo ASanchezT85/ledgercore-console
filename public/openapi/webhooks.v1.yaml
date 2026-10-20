@@ -372,6 +372,7 @@ components:
         - ledger.hold.created
         - ledger.hold.captured
         - ledger.hold.released
+        - ledger.hold.expired
         - ledger.account.updated
         - recon.discrepancy.detected
         - '*'
