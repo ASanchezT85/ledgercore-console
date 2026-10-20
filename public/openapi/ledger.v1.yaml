@@ -3107,8 +3107,9 @@ components:
             the funds the hold set aside, and nobody else can in between. The
             transaction must lower the held account in the held asset; the
             captured amount is that decrease, capped at the hold, and any
-            remainder is released. Emits `ledger.hold.captured`. A hold that is
-            not active is 409 `conflict`; one past `expires_at` is 409
+            remainder is released. Emits `ledger.hold.captured` and writes the
+            same `hold.capture` audit row as `POST /v1/holds/{id}/capture`. A
+            hold that is not active is 409 `conflict`; one past `expires_at` is 409
             `hold_expired` (ADR-016). Part of the idempotency fingerprint.
         adjusts_period_id:
           type: string
