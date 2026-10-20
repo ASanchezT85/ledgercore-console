@@ -26,6 +26,10 @@ tags:
   - name: Runs
   - name: Reports
   - name: Discrepancies
+  - name: Custody
+    description: Balances reported by a custodian (bank, PSP) compared with the ledger balance of the account that represents them.
+  - name: Settlement
+    description: Settlement batches declared by a PSP (gross, fees, net) checked against the ledger captures and the payout on the statement.
 
 paths:
   /v1/reconciliation/sources:
@@ -169,6 +173,201 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/MatchRule'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/reconciliation/sources/{id}/custody-balances:
+    post:
+      operationId: createCustodyBalance
+      tags: [Custody]
+      summary: Record a custodian's reported balance
+      description: |
+        Stores the balance a custodian (bank, PSP) reports for a ledger
+        account at a cut-off, next to the balance the posting mirror gives
+        for the same account and cut-off (ADR-011).
+
+        `ledger` = sum of debits minus sum of credits of every mirrored
+        posting on the account, in the asset, with `posted_at <= as_of`
+        (computed in SQL, it cannot wrap). It is only as complete as the
+        mirror: postings from before reconciliation consumed
+        `ledger.transaction.posted`, or history the stream lost, are missing.
+
+        Snapshots are **append-only**: a correction is a new snapshot. When
+        `reported` differs from `ledger`, the snapshot opens a `critical`
+        `balance_mismatch` discrepancy (`discrepancy_id`); otherwise
+        `discrepancy_id` is null. `difference` is `reported - ledger`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustodyBalanceCreate'
+            examples:
+              eod:
+                value:
+                  account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                  asset: USD
+                  as_of: '2026-10-18T23:59:59Z'
+                  balance: '1250000'
+      responses:
+        '201':
+          description: Snapshot recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustodyBalance'
+              examples:
+                mismatch:
+                  value:
+                    id: 0197f3c5-2d3e-7f4a-9b5c-6d7e8f9a0b1c
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                    asset: USD
+                    as_of: '2026-10-18T23:59:59Z'
+                    reported: '1250000'
+                    ledger: '1249000'
+                    difference: '1000'
+                    discrepancy_id: 0197f3c5-2d3f-7a5b-8c6d-7e8f9a0b1c2d
+                    created_at: '2026-10-19T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      operationId: listCustodyBalances
+      tags: [Custody]
+      summary: List a source's custody balance snapshots
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Page of the source's snapshots, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustodyBalance'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/reconciliation/sources/{id}/settlement-batches:
+    post:
+      operationId: createSettlementBatch
+      tags: [Settlement]
+      summary: Declare a settlement batch
+      description: |
+        Declares what a PSP reports for one settlement: `gross` captured,
+        `fees` kept, so `net = gross - fees` is paid out. The batch is an
+        expectation that is checked, never consumed (ADR-011).
+
+        **Evaluation** runs when the batch is created and again on every run
+        of the source, while the batch is `open`:
+
+        - No statement row with `external_ref` equal to `batch_ref` yet: it
+          stays `open` (captures and payouts arrive on their own schedule).
+        - The payout row exists, equals `net` in the batch asset, and the
+          ledger captures add up to `gross`: `settled`.
+        - Anything else (wrong amount or asset, captures different from
+          `gross`, the payout repeated): `mismatched`, and a `high`
+          `settlement_mismatch` discrepancy is opened (`discrepancy_id`).
+
+        `settled` and `mismatched` are final: the batch is never evaluated
+        again. **Captures** are the debit legs on `account_id` whose
+        transaction metadata `metadata_key` equals `batch_ref`; the ledger's
+        own payout booking (a credit on the same account) is not a capture.
+        Refunds inside a batch are not netted. The payout row is only
+        referenced, so matching still pairs it with the ledger's payout
+        posting.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettlementBatchCreate'
+            examples:
+              psp:
+                value:
+                  batch_ref: STL-2026-10-18
+                  account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                  asset: USD
+                  gross: '100000'
+                  fees: '2900'
+      responses:
+        '201':
+          description: Batch created and evaluated once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementBatch'
+              examples:
+                open:
+                  value:
+                    id: 0197f3d6-3e4f-7a5b-8c6d-7e8f9a0b1c2d
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    batch_ref: STL-2026-10-18
+                    account_id: 0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f
+                    metadata_key: settlement_id
+                    asset: USD
+                    gross: '100000'
+                    fees: '2900'
+                    net: '97100'
+                    status: open
+                    captured: '100000'
+                    payout_external_id: null
+                    discrepancy_id: null
+                    evaluated_at: '2026-10-19T12:00:00Z'
+                    created_at: '2026-10-19T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The source already has a batch with that `batch_ref` (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      operationId: listSettlementBatches
+      tags: [Settlement]
+      summary: List a source's settlement batches
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: status
+          in: query
+          description: Filter by batch status; omit for all.
+          schema:
+            $ref: '#/components/schemas/BatchStatus'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Page of the source's batches, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SettlementBatch'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -702,6 +901,152 @@ components:
           type: string
           format: date-time
 
+    CustodyBalanceCreate:
+      type: object
+      required: [account_id, asset, as_of, balance]
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: Ledger account that represents the custodian's balance.
+        asset:
+          type: string
+          minLength: 1
+          maxLength: 12
+        as_of:
+          type: string
+          format: date-time
+          description: Cut-off of the reported balance.
+        balance:
+          type: string
+          pattern: '^-?[0-9]{1,19}$'
+          description: Balance the custodian reports, in minor units, as a string. May be negative.
+
+    CustodyBalance:
+      type: object
+      required: [id, source_id, account_id, asset, as_of, reported, ledger, difference, discrepancy_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+          format: uuid
+        asset:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        reported:
+          type: string
+          description: Balance reported by the custodian, minor units.
+        ledger:
+          type: string
+          description: Mirrored debits minus credits on the account up to `as_of`, minor units.
+        difference:
+          type: string
+          description: '`reported - ledger`, minor units; "0" when they agree.'
+        discrepancy_id:
+          type: [string, 'null']
+          format: uuid
+          description: The `balance_mismatch` discrepancy; null exactly when `difference` is "0".
+        created_at:
+          type: string
+          format: date-time
+
+    BatchStatus:
+      type: string
+      enum: [open, settled, mismatched]
+
+    SettlementBatchCreate:
+      type: object
+      required: [batch_ref, account_id, asset, gross]
+      additionalProperties: false
+      properties:
+        batch_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: |
+            Settlement id as the PSP reports it. Unique per source. It is the
+            `external_ref` of the payout row on the statement and the value
+            the captures carry under `metadata_key`.
+        account_id:
+          type: string
+          format: uuid
+          description: Clearing account that holds the captures.
+        metadata_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          default: settlement_id
+          description: Transaction metadata key that tags captures with the batch.
+        asset:
+          type: string
+          minLength: 1
+          maxLength: 12
+        gross:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          description: Gross captured, minor units, as a string.
+        fees:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          default: '0'
+          description: Fees the PSP kept, minor units, as a string; at most `gross`.
+
+    SettlementBatch:
+      type: object
+      required: [id, source_id, batch_ref, account_id, metadata_key, asset, gross, fees, net, status, captured, payout_external_id, discrepancy_id, evaluated_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        batch_ref:
+          type: string
+        account_id:
+          type: string
+          format: uuid
+        metadata_key:
+          type: string
+        asset:
+          type: string
+        gross:
+          type: string
+          description: Minor units.
+        fees:
+          type: string
+          description: Minor units.
+        net:
+          type: string
+          description: '`gross - fees`, minor units: what the payout must equal.'
+        status:
+          $ref: '#/components/schemas/BatchStatus'
+        captured:
+          type: [string, 'null']
+          description: Sum of the ledger captures at the last evaluation, minor units; null before the first.
+        payout_external_id:
+          type: [string, 'null']
+          format: uuid
+          description: Statement row of the payout, once it appears.
+        discrepancy_id:
+          type: [string, 'null']
+          format: uuid
+          description: The `settlement_mismatch` discrepancy; set exactly when `status` is `mismatched`.
+        evaluated_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
     Run:
       type: object
       required: [id, source_id, rule_version, status, matched_count, unmatched_count, started_at]
@@ -750,24 +1095,31 @@ components:
         | medium | 72 hours |
         | low | 7 days |
 
-        The table is fixed for all tenants. A run assigns the default severity
-        by kind: `amount_mismatch` and `duplicate` are `high`, the others
-        `medium`.
+        The table is fixed for all tenants. The default severity depends on the
+        kind: `balance_mismatch` is `critical`; `amount_mismatch`, `duplicate`
+        and `settlement_mismatch` are `high`; the others `medium`.
 
     Discrepancy:
       type: object
-      required: [id, run_id, kind, details, status, severity, owner, due_at, resolved_at, age_seconds, sla_breached, created_at]
+      required: [id, source_id, run_id, kind, details, status, severity, owner, due_at, resolved_at, age_seconds, sla_breached, created_at]
       properties:
         id:
           type: string
           format: uuid
-        run_id:
+        source_id:
           type: string
           format: uuid
+        run_id:
+          type: [string, 'null']
+          format: uuid
+          description: Run that found it; null for custody and settlement exceptions raised outside a run.
         kind:
           type: string
-          enum: [missing_internal, missing_external, amount_mismatch, duplicate]
-          description: '`duplicate` flags statement rows repeating a key that a rule allows only once.'
+          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch]
+          description: |
+            `duplicate` flags statement rows repeating a key that a rule allows only once.
+            `balance_mismatch` is a custody snapshot whose reported balance differs from the ledger's.
+            `settlement_mismatch` is a settlement batch whose payout or captures do not add up.
         details:
           type: object
           description: |

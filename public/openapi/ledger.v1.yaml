@@ -967,6 +967,8 @@ paths:
       description: |
         Creates and posts a new compensating transaction with mirrored
         postings, links both, and marks the original as reversed.
+        The compensating transaction is announced with
+        `ledger.transaction.posted`, followed by `ledger.transaction.reversed`.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
