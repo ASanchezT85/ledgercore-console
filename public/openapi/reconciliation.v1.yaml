@@ -30,6 +30,8 @@ tags:
     description: Balances reported by a custodian (bank, PSP) compared with the ledger balance of the account that represents them.
   - name: Settlement
     description: Settlement batches declared by a PSP (gross, fees, net) checked against the ledger captures and the payout on the statement.
+  - name: Callbacks
+    description: Events a provider pushes (at least once), deduplicated per source by the provider's event id. Transaction events become statement rows.
 
 paths:
   /v1/reconciliation/sources:
@@ -365,6 +367,178 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/SettlementBatch'
+                  next_cursor:
+                    $ref: '#/components/schemas/NextCursor'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/reconciliation/sources/{id}/callbacks:
+    post:
+      operationId: receiveCallback
+      tags: [Callbacks]
+      summary: Deliver a provider callback
+      description: |
+        Stores one provider event in the source's inbox (ADR-012). Providers
+        deliver at least once, so the same event arrives again on timeouts
+        and retries; each `event_id` is kept once per source.
+
+        - First delivery: `201` and the stored callback.
+        - Redelivery of a known `event_id` with the **same canonical
+          payload**: `200` and the stored callback with `duplicates`
+          incremented. Nothing is processed twice.
+        - Same `event_id` with a **different payload**: `409` (`conflict`).
+          Either the provider reused an id or the payload was tampered with;
+          the stored event is not changed.
+
+        The canonical payload is `event_type`, `occurred_at` (in UTC) and
+        `data` re-encoded with sorted keys and numbers kept verbatim. Key
+        order, whitespace and the time zone offset do not matter, so a
+        provider retry that only reformats the body is still a duplicate.
+
+        An event with `event_type` = `transaction` becomes a statement row of
+        the source (`external_id`, under its own import `callback:<event_id>`)
+        and the next run matches it like any CSV row (`status` `processed`).
+        Every other type is stored as evidence with no side effect (`status`
+        `ignored`). `data` of a `transaction` event needs `external_ref`,
+        `amount` (minor units, string) and `asset`, plus an optional
+        `direction`; anything else in `data` is kept as sent.
+
+        This route is behind the platform's JWT (`reconciliation:write`):
+        the tenant's integration receives the provider's webhook, verifies
+        the provider's signature with the provider's secret, maps the event to
+        this shape and relays it. Reconciliation holds no provider secrets.
+        Stored events cannot be changed except for their duplicate counter.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallbackCreate'
+            examples:
+              transaction:
+                summary: A payment the provider reports
+                value:
+                  event_id: evt_9f3a1c
+                  event_type: transaction
+                  occurred_at: '2026-10-19T09:30:00Z'
+                  data:
+                    external_ref: PSP-TX-20261019-0042
+                    amount: '12500'
+                    asset: USD
+                    direction: CREDIT
+              payoutStatus:
+                summary: An event the inbox only keeps
+                value:
+                  event_id: evt_9f3a1d
+                  event_type: payout.status
+                  occurred_at: '2026-10-19T09:31:00Z'
+                  data:
+                    payout_id: po_771
+                    status: paid
+      responses:
+        '201':
+          description: New event stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Callback'
+              examples:
+                transaction:
+                  value:
+                    id: 0197f3e7-4f5a-7b6c-9d7e-8f9a0b1c2d3e
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    event_id: evt_9f3a1c
+                    event_type: transaction
+                    occurred_at: '2026-10-19T09:30:00Z'
+                    data:
+                      amount: '12500'
+                      asset: USD
+                      direction: CREDIT
+                      external_ref: PSP-TX-20261019-0042
+                    status: processed
+                    external_id: 0197f3e7-4f5b-7c7d-8e8f-9a0b1c2d3e4f
+                    duplicates: 0
+                    last_duplicate_at: null
+                    received_at: '2026-10-19T09:30:02Z'
+                payoutStatus:
+                  value:
+                    id: 0197f3e7-5a6b-7c7d-8e8f-9a0b1c2d3e4f
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    event_id: evt_9f3a1d
+                    event_type: payout.status
+                    occurred_at: '2026-10-19T09:31:00Z'
+                    data:
+                      payout_id: po_771
+                      status: paid
+                    status: ignored
+                    external_id: null
+                    duplicates: 0
+                    last_duplicate_at: null
+                    received_at: '2026-10-19T09:31:01Z'
+        '200':
+          description: |
+            Redelivery of a known event with the same canonical payload: the
+            stored callback, with `duplicates` incremented. Nothing was reprocessed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Callback'
+              examples:
+                redelivery:
+                  value:
+                    id: 0197f3e7-4f5a-7b6c-9d7e-8f9a0b1c2d3e
+                    source_id: d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a
+                    event_id: evt_9f3a1c
+                    event_type: transaction
+                    occurred_at: '2026-10-19T09:30:00Z'
+                    data:
+                      amount: '12500'
+                      asset: USD
+                      direction: CREDIT
+                      external_ref: PSP-TX-20261019-0042
+                    status: processed
+                    external_id: 0197f3e7-4f5b-7c7d-8e8f-9a0b1c2d3e4f
+                    duplicates: 1
+                    last_duplicate_at: '2026-10-19T09:35:10Z'
+                    received_at: '2026-10-19T09:30:02Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The source already has that `event_id` with a different payload (`conflict`). The stored event is unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      operationId: listCallbacks
+      tags: [Callbacks]
+      summary: List a source's callbacks
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: status
+          in: query
+          description: Filter by callback status; omit for all.
+          schema:
+            $ref: '#/components/schemas/CallbackStatus'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Page of the source's callbacks, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, next_cursor]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Callback'
                   next_cursor:
                     $ref: '#/components/schemas/NextCursor'
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1044,6 +1218,91 @@ components:
           type: [string, 'null']
           format: date-time
         created_at:
+          type: string
+          format: date-time
+
+    CallbackStatus:
+      type: string
+      enum: [processed, ignored]
+      description: '`processed`: became a statement row. `ignored`: kept as evidence, no side effect.'
+
+    CallbackCreate:
+      type: object
+      required: [event_id, event_type, occurred_at]
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: The provider's own id for the event; unique per source.
+        event_type:
+          type: string
+          pattern: '^[a-z0-9._-]{1,64}$'
+          description: '`transaction` becomes a statement row; any other type is stored as `ignored`.'
+        occurred_at:
+          type: string
+          format: date-time
+          description: When the event happened at the provider.
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Event body (defaults to `{}`). For `event_type` = `transaction`:
+            `external_ref` (string, 1..255), `amount` (string, minor units,
+            `^-?[0-9]{1,19}$`), `asset` (string, at most 12 characters) and
+            optionally `direction` (`DEBIT` or `CREDIT`).
+          properties:
+            external_ref:
+              type: string
+              minLength: 1
+              maxLength: 255
+            amount:
+              type: string
+              pattern: '^-?[0-9]{1,19}$'
+            asset:
+              type: string
+              minLength: 1
+              maxLength: 12
+            direction:
+              type: string
+              enum: [DEBIT, CREDIT]
+
+    Callback:
+      type: object
+      required: [id, source_id, event_id, event_type, occurred_at, data, status, external_id, duplicates, last_duplicate_at, received_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+          description: The event body in canonical form (sorted keys), as stored.
+        status:
+          $ref: '#/components/schemas/CallbackStatus'
+        external_id:
+          type: [string, 'null']
+          format: uuid
+          description: The statement row the event became; null unless `status` is `processed`.
+        duplicates:
+          type: integer
+          minimum: 0
+          description: Redeliveries received with the same canonical payload.
+        last_duplicate_at:
+          type: [string, 'null']
+          format: date-time
+        received_at:
           type: string
           format: date-time
 
