@@ -41,6 +41,10 @@ tags:
     description: |
       Several single-asset transactions written atomically, optionally priced
       by an FX quote (currency conversion).
+  - name: PostingRules
+    description: |
+      Versioned, immutable mappings from a canonical event type to the lines of
+      one transaction, and the events booked through them.
   - name: Reports
     description: Accounting reports.
 
@@ -1879,6 +1883,243 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/posting-rules:
+    post:
+      operationId: createPostingRule
+      tags: [PostingRules]
+      summary: Publish a posting rule
+      description: |
+        Publishes the next version of the rule for `event_type` in a ledger.
+        A rule maps a canonical event to the lines of one transaction: each
+        line names an account (a fixed `account_id`, or an `account` role the
+        event fills), a `direction`, the name of one of the event's `amount`s
+        and, optionally, an `asset` (default: the event's). Rules are
+        immutable and versioned: publishing never edits an earlier version,
+        and each version carries a `rule_hash` over its event type and lines.
+        Not idempotent: every call publishes a new version. Requires
+        `ledger:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostingRuleRequest'
+            examples:
+              cardSettlement:
+                summary: Card settlement with a fee
+                value:
+                  ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                  event_type: card.settled
+                  description: Card settlement net of the processor fee
+                  lines:
+                    - { account: processor_clearing, direction: DEBIT, amount: net }
+                    - { account: fee_expense, direction: DEBIT, amount: fee }
+                    - { account: customer_wallet, direction: CREDIT, amount: gross }
+      responses:
+        '201':
+          description: Rule version published.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingRule'
+              examples:
+                cardSettlement:
+                  value:
+                    id: 7a6b2c83-5f70-7192-b3c5-1e2f3a4b5c6d
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    event_type: card.settled
+                    version: 1
+                    description: Card settlement net of the processor fee
+                    lines:
+                      - { account: processor_clearing, direction: DEBIT, amount: net }
+                      - { account: fee_expense, direction: DEBIT, amount: fee }
+                      - { account: customer_wallet, direction: CREDIT, amount: gross }
+                    rule_hash: 9c1e0b7a4d2f58163ab07c94e5d1f2a83b6c4d7e0f19a2b35c8d6e7f40a1b2c3
+                    created_at: '2026-10-19T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      operationId: listPostingRules
+      tags: [PostingRules]
+      summary: List a ledger's posting rules
+      description: |
+        Every published version, newest first; `event_type` narrows the list
+        to one event type. Requires `ledger:read`.
+      parameters:
+        - name: ledger_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: event_type
+          in: query
+          required: false
+          description: Only the versions of this event type.
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of rules, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PostingRule'
+                  next_cursor:
+                    type: [string, 'null']
+                    description: Opaque cursor for the next page; null when exhausted.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/posting-rules/{id}:
+    get:
+      operationId: getPostingRule
+      tags: [PostingRules]
+      summary: Get a posting rule
+      description: Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The rule version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingRule'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/posting-events:
+    post:
+      operationId: createPostingEvent
+      tags: [PostingRules]
+      summary: Book a canonical event
+      description: |
+        Applies the rule for `event_type` (the latest version, or
+        `rule_version` when given) to the event's `amounts` and `accounts` and
+        posts the resulting transaction through the normal posting path
+        (balance per asset, periods, metadata allowlist, overdraft, account
+        status, hash chain). The transaction carries `posting_rule_id`. An
+        amount of `0` skips its lines. Every amount and role the rule names
+        must be supplied, and nothing else (400 `validation_failed`). The
+        postings must balance (422 `unbalanced_transaction`). An unknown
+        `event_type` or `rule_version` is 404. Requires `ledger:write`.
+
+        `idempotency_key` is required and may be sent in the body or via the
+        `Idempotency-Key` request header (the body field wins). The same key
+        and payload replays the event (200 + `X-Idempotent-Replay: true`).
+        The same key with another payload, or a key already held by a plain
+        transaction, is 409 `idempotency_conflict`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Alternative to the `idempotency_key` body field (the body field wins).
+          schema:
+            type: string
+            maxLength: 240
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostingEventRequest'
+            examples:
+              cardSettled:
+                summary: USD 100.00 gross, USD 2.50 fee
+                value:
+                  ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                  event_type: card.settled
+                  idempotency_key: settle-2026-0042
+                  asset: USD
+                  amounts: { gross: '10000', fee: '250', net: '9750' }
+                  accounts:
+                    processor_clearing: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                    fee_expense: 5e4f0a61-3d5e-7f80-a183-9c1d3e4f5a6b
+                    customer_wallet: 6f5a1b72-4e6f-7081-b294-0d2e4f5a6b7c
+      responses:
+        '201':
+          description: Event booked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingEvent'
+        '200':
+          description: Idempotent replay — the event already existed for this idempotency key and payload.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingEvent'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The idempotency key was already used with another payload, or by a plain transaction (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                idempotencyConflict:
+                  value:
+                    error:
+                      code: idempotency_conflict
+                      message: 'idempotency key already used with a different payload'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '422':
+          description: |
+            The resulting transaction is refused as any posted transaction
+            would be: unbalanced (`unbalanced_transaction`), insufficient
+            funds (`insufficient_funds`), frozen or closed account
+            (`account_inactive`), parent account (`account_not_postable`),
+            closed period (`period_closed`) or rejected metadata
+            (`metadata_*`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unbalanced:
+                  value:
+                    error:
+                      code: unbalanced_transaction
+                      message: 'domain: transaction is not balanced'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+
+  /v1/posting-events/{id}:
+    get:
+      operationId: getPostingEvent
+      tags: [PostingRules]
+      summary: Get a posting event
+      description: The event with the transaction it booked. Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingEvent'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/trial-balance:
     get:
       operationId: getTrialBalance
@@ -2753,6 +2994,10 @@ components:
           type: [string, 'null']
           format: uuid
           description: Id of the posting group this transaction belongs to; null for a standalone transaction.
+        posting_rule_id:
+          type: [string, 'null']
+          format: uuid
+          description: Id of the posting rule version this transaction was booked through; null when it was not booked from an event.
         effective_at:
           type: string
           format: date-time
@@ -3145,6 +3390,176 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Transaction'
+        created_at:
+          type: string
+          format: date-time
+
+    RuleLine:
+      type: object
+      required: [direction, amount]
+      additionalProperties: false
+      description: One line template of a posting rule. Exactly one of `account_id` and `account`.
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: Fixed account this line always posts to.
+        account:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Account role; the event supplies the account in `accounts`.
+        direction:
+          $ref: '#/components/schemas/Direction'
+        amount:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Name of one of the event's `amounts`.
+        asset:
+          $ref: '#/components/schemas/AssetCode'
+
+    PostingRule:
+      type: object
+      required: [id, ledger_id, event_type, version, lines, rule_hash, created_at]
+      description: An immutable version of the mapping from a canonical event type to transaction lines.
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        version:
+          type: integer
+          minimum: 1
+          description: Per ledger and event type, starting at 1.
+        description:
+          type: string
+          description: Omitted when empty.
+        lines:
+          type: array
+          minItems: 2
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RuleLine'
+        rule_hash:
+          type: string
+          description: Hex SHA-256 of the rule's event type and lines.
+          examples: ['9c1e0b7a4d2f58163ab07c94e5d1f2a83b6c4d7e0f19a2b35c8d6e7f40a1b2c3']
+        created_at:
+          type: string
+          format: date-time
+
+    CreatePostingRuleRequest:
+      type: object
+      required: [ledger_id, event_type, lines]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        description:
+          type: string
+          maxLength: 1024
+        lines:
+          type: array
+          minItems: 2
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RuleLine'
+          description: At least one DEBIT and one CREDIT line.
+
+    CreatePostingEventRequest:
+      type: object
+      required: [ledger_id, event_type, amounts]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: |
+            Unique per tenant. Required, but it may be supplied via the
+            `Idempotency-Key` request header instead of this field; the body
+            field wins when both are present.
+        rule_version:
+          type: integer
+          minimum: 0
+          description: Version of the rule to apply; 0 or omitted means the latest.
+        reference:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1024
+        effective_at:
+          type: string
+          format: date-time
+          description: Accounting effective date; defaults to creation time.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        asset:
+          $ref: '#/components/schemas/AssetCode'
+        amounts:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: '^[0-9]+$'
+          description: Amount name to string-encoded integer in minor units. Must hold exactly the names the rule uses; 0 skips that amount's lines.
+        accounts:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+          description: Account role to account id. Must hold exactly the roles the rule uses.
+
+    PostingEvent:
+      type: object
+      required: [id, ledger_id, event_type, idempotency_key, rule_id, rule_version, amounts, accounts, transaction, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+        idempotency_key:
+          type: string
+        rule_id:
+          type: string
+          format: uuid
+          description: The rule version that was applied.
+        rule_version:
+          type: integer
+          minimum: 1
+        asset:
+          $ref: '#/components/schemas/AssetCode'
+        amounts:
+          type: object
+          additionalProperties:
+            type: string
+          description: Amount name to string-encoded integer in minor units.
+        accounts:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+          description: Account role to account id; empty when the rule uses only fixed accounts.
+        transaction:
+          $ref: '#/components/schemas/Transaction'
         created_at:
           type: string
           format: date-time
