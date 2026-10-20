@@ -1407,7 +1407,8 @@ paths:
       tags: [AdjustmentRequests]
       summary: Execute an approved adjustment request
       description: |
-        Writes the request's transaction, posted, through the normal path
+        Writes the request's transaction, posted and never as a draft
+        (ADR-009), through the normal path
         (period rules, metadata allowlist, overdraft, journal hash chain), with
         idempotency key `adjustment-request:<id>`, and links request and
         transaction (`transaction_id`). Exactly once: a repeated or concurrent
@@ -3127,7 +3128,9 @@ components:
 
             An adjustment is only written by executing an approved adjustment
             request (`POST /v1/adjustment-requests`): sent here, a valid
-            adjustment is refused with 422 `approval_required`.
+            adjustment is refused with 422 `approval_required`. An adjustment
+            is never a draft: with `status: draft` it is 400
+            `validation_failed` (ADR-009).
 
     Transaction:
       type: object
