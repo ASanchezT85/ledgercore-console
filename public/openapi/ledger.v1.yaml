@@ -45,6 +45,10 @@ tags:
     description: |
       Versioned, immutable mappings from a canonical event type to the lines of
       one transaction, and the events booked through them.
+  - name: LedgerTransfers
+    description: |
+      A value transfer between two ledgers of one tenant, written as one
+      transaction per ledger whose due-to / due-from accounts eliminate.
   - name: Reports
     description: Accounting reports.
 
@@ -2120,6 +2124,152 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledger-transfers:
+    post:
+      operationId: createLedgerTransfer
+      tags: [LedgerTransfers]
+      summary: Create a transfer between ledgers
+      description: |
+        Moves value between two different ledgers of the tenant. A ledger never
+        holds an entry that crosses ledgers, so a transfer is two posted
+        transactions, one per ledger, written atomically: both commit or
+        neither does. Each side names its `ledger_id`, its `due_account_id`
+        (the inter-ledger due-to / due-from account of that ledger) and its
+        `postings`, and goes through the normal posting path (balance per
+        asset, every posting in its own ledger, periods, metadata allowlist,
+        overdraft, account status, hash chain). Both transactions carry
+        `transfer_id`.
+
+        The due accounts must eliminate: per asset, the net movement of the
+        source due account plus that of the target due account is zero, and
+        the source due account must move (422 `transfer_unbalanced`). Both
+        sides naming the same ledger, or a posting in the wrong ledger, is
+        400 `validation_failed`.
+
+        `idempotency_key` covers the whole transfer: the same key and payload
+        replays it (200 + `X-Idempotent-Replay: true`); the same key with
+        another payload is 409 `idempotency_conflict`. The key may be sent in
+        the body or via the `Idempotency-Key` request header. The two
+        transactions get the derived keys `<key>/source` and `<key>/target`;
+        if one of those is already held by another transaction the call is
+        409 `idempotency_conflict`. Requires `ledger:write`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Alternative to the `idempotency_key` body field (the body field wins).
+          schema:
+            type: string
+            maxLength: 240
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLedgerTransferRequest'
+            examples:
+              parentToSubsidiary:
+                summary: Move USD 100.00 from one ledger to another
+                value:
+                  idempotency_key: xfer-2026-0001
+                  reference: xfer-0001
+                  source:
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    due_account_id: 7a6b2c83-5f70-7192-c3a5-1e3f5a6b7c8d
+                    postings:
+                      - account_id: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                        direction: CREDIT
+                        amount: { asset: USD, amount: '10000' }
+                      - account_id: 7a6b2c83-5f70-7192-c3a5-1e3f5a6b7c8d
+                        direction: DEBIT
+                        amount: { asset: USD, amount: '10000' }
+                  target:
+                    ledger_id: 2a1b0c9d-8e7f-7a6b-9c5d-4e3f2a1b0c9d
+                    due_account_id: 8b7c3d94-6a81-72a3-d4b6-2f4a6b7c8d9e
+                    postings:
+                      - account_id: 9c8d4ea5-7b92-73b4-e5c7-3a5b7c8d9eaf
+                        direction: DEBIT
+                        amount: { asset: USD, amount: '10000' }
+                      - account_id: 8b7c3d94-6a81-72a3-d4b6-2f4a6b7c8d9e
+                        direction: CREDIT
+                        amount: { asset: USD, amount: '10000' }
+      responses:
+        '201':
+          description: Transfer created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '200':
+          description: Idempotent replay — the transfer already existed for this idempotency key and payload.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The idempotency key was already used with another payload, or a
+            derived key (`<key>/source`, `<key>/target`) is held by another
+            transaction (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                idempotencyConflict:
+                  value:
+                    error:
+                      code: idempotency_conflict
+                      message: 'idempotency key already used with a different payload'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '422':
+          description: |
+            The due accounts do not eliminate (`transfer_unbalanced`), or a
+            side is refused as a transaction would be: unbalanced
+            (`unbalanced_transaction`), insufficient funds
+            (`insufficient_funds`), frozen or closed account
+            (`account_inactive`), parent account (`account_not_postable`),
+            closed period (`period_closed`) or rejected metadata
+            (`metadata_*`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                transferUnbalanced:
+                  value:
+                    error:
+                      code: transfer_unbalanced
+                      message: 'domain: due accounts do not eliminate'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+
+  /v1/ledger-transfers/{id}:
+    get:
+      operationId: getLedgerTransfer
+      tags: [LedgerTransfers]
+      summary: Get a transfer between ledgers
+      description: The transfer with its two transactions. Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The transfer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransfer'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/trial-balance:
     get:
       operationId: getTrialBalance
@@ -2522,7 +2672,7 @@ components:
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
                 period_closed, fx_quote_expired, fx_rate_mismatch,
-                approval_required, self_approval,
+                transfer_unbalanced, approval_required, self_approval,
                 request_hash_mismatch, metadata_not_scalar, metadata_too_large,
                 metadata_pii_detected, metadata_key_not_allowed,
                 rate_limited,
@@ -2998,6 +3148,10 @@ components:
           type: [string, 'null']
           format: uuid
           description: Id of the posting rule version this transaction was booked through; null when it was not booked from an event.
+        transfer_id:
+          type: [string, 'null']
+          format: uuid
+          description: Id of the ledger transfer this transaction is one side of; null for a standalone transaction.
         effective_at:
           type: string
           format: date-time
@@ -3560,6 +3714,102 @@ components:
           description: Account role to account id; empty when the rule uses only fixed accounts.
         transaction:
           $ref: '#/components/schemas/Transaction'
+        created_at:
+          type: string
+          format: date-time
+
+    TransferSideRequest:
+      type: object
+      required: [ledger_id, due_account_id, postings]
+      additionalProperties: false
+      description: One side of a transfer between ledgers. It is always posted, in its own ledger.
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: Ledger this side posts to. The two sides must name different ledgers.
+        due_account_id:
+          type: string
+          format: uuid
+          description: The inter-ledger due-to / due-from account of `ledger_id`.
+        reference:
+          type: string
+          maxLength: 255
+          description: Free-form external reference.
+        description:
+          type: string
+          maxLength: 1024
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        postings:
+          type: array
+          minItems: 2
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/Posting'
+          description: Every posting must be on an account of `ledger_id`; must balance per asset.
+
+    CreateLedgerTransferRequest:
+      type: object
+      required: [source, target]
+      additionalProperties: false
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: |
+            Unique per tenant and covers the whole transfer. Required, but it
+            may be supplied via the `Idempotency-Key` request header instead
+            of this field; the body field wins when both are present.
+        reference:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          maxLength: 1024
+        effective_at:
+          type: string
+          format: date-time
+          description: Accounting effective date shared by both transactions; defaults to creation time.
+        source:
+          $ref: '#/components/schemas/TransferSideRequest'
+        target:
+          $ref: '#/components/schemas/TransferSideRequest'
+
+    TransferSide:
+      type: object
+      required: [ledger_id, due_account_id, transaction]
+      description: One side of a transfer between ledgers.
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        due_account_id:
+          type: string
+          format: uuid
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+
+    LedgerTransfer:
+      type: object
+      required: [id, idempotency_key, source, target, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+        reference:
+          type: string
+          description: Omitted when empty.
+        description:
+          type: string
+          description: Omitted when empty.
+        source:
+          $ref: '#/components/schemas/TransferSide'
+        target:
+          $ref: '#/components/schemas/TransferSide'
         created_at:
           type: string
           format: date-time
