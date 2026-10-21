@@ -215,6 +215,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/MetadataRejected' }
 
+  /v1/ledgers/{id}/fx-policy:
+    put:
+      operationId: setLedgerFXPolicy
+      tags: [Ledgers]
+      summary: Require an FX quote for conversions
+      description: |
+        Turns the ledger's `require_fx_quote` on or off (off by default for
+        every ledger). While it is on, a transaction that holds more than one
+        asset is refused with 422 `fx_quote_required`, drafts included: a
+        plain transaction carries no quote, so convert with a posting group
+        (`POST /v1/posting-groups` with `fx`) or a transfer between ledgers
+        that cites `fx`. A transfer between ledgers that moves more than one
+        asset without `fx` is refused the same way when either of its two
+        ledgers has the policy on. Reversals, and replays of what was
+        accepted earlier, are never refused by it. Requires the `ledger:write`
+        scope.
+
+        The policy governs movements written from then on. The change waits
+        for the writes in flight on the ledger, and writes that commit after
+        it are judged by it. Each change leaves an `audit_log` row
+        (`ledger.fx_policy.update`) with the previous and the new value;
+        setting the value the ledger already has is a no-op and audits nothing.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FXPolicy'
+            examples:
+              on:
+                value:
+                  require_fx_quote: true
+      responses:
+        '200':
+          description: The ledger with its new policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/ledgers/{id}/coverage:
     get:
       operationId: getLedgerCoverage
@@ -745,7 +790,9 @@ paths:
             (`account_not_postable`), is dated in a closed accounting
             period (`period_closed`; see `adjusts_period_id`), is an
             adjustment sent without an approved adjustment request
-            (`approval_required`), or carries rejected metadata
+            (`approval_required`), holds more than one asset in a ledger with
+            `require_fx_quote` on (`fx_quote_required`; see
+            `PUT /v1/ledgers/{id}/fx-policy`), or carries rejected metadata
             (`metadata_*`, see `MetadataRejected`).
           content:
             application/json:
@@ -2189,6 +2236,18 @@ paths:
         transactions get the derived keys `<key>/source` and `<key>/target`;
         if one of those is already held by another transaction the call is
         409 `idempotency_conflict`. Requires `ledger:write`.
+
+        A side may swap the asset it received through a conversion account.
+        With `fx` (`quote_id`, `account_id`) the transfer cites an FX quote
+        and that conversion account, which belongs to either side; its legs
+        across both sides are judged exactly as in a posting group: opposite
+        signs and the quote amount equal to the base amount times the rate
+        within one minor unit (422 `fx_rate_mismatch`), quote not expired
+        (422 `fx_quote_expired`). Without `fx` nothing prices the conversion,
+        unless a ledger has `require_fx_quote` on: then a transfer that moves
+        more than one asset is refused with 422 `fx_quote_required` when
+        either of its ledgers has it (`PUT /v1/ledgers/{id}/fx-policy`). The
+        quote is part of the request for idempotency.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -2274,8 +2333,11 @@ paths:
             (`unbalanced_transaction`), insufficient funds
             (`insufficient_funds`), frozen or closed account
             (`account_inactive`), parent account (`account_not_postable`),
-            closed period (`period_closed`) or rejected metadata
-            (`metadata_*`).
+            closed period (`period_closed`), rejected metadata
+            (`metadata_*`), a conversion that does not match its quote
+            (`fx_rate_mismatch`), an expired quote (`fx_quote_expired`), or
+            more than one asset without `fx` in a ledger with
+            `require_fx_quote` on (`fx_quote_required`).
           content:
             application/json:
               schema:
@@ -2737,7 +2799,7 @@ components:
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
                 period_closed, fx_quote_expired, fx_rate_mismatch,
-                transfer_unbalanced, approval_required, self_approval,
+                fx_quote_required, transfer_unbalanced, approval_required, self_approval,
                 request_hash_mismatch, hold_expired, metadata_not_scalar,
                 metadata_too_large,
                 metadata_pii_detected, metadata_key_not_allowed,
@@ -2866,9 +2928,27 @@ components:
           $ref: '#/components/schemas/Metadata'
         metadata_policy:
           $ref: '#/components/schemas/MetadataPolicy'
+        require_fx_quote:
+          type: boolean
+          description: |
+            Whether a transaction in more than one asset, and a transfer between
+            ledgers that moves more than one, needs an FX quote (false by
+            default; `PUT /v1/ledgers/{id}/fx-policy`).
         created_at:
           type: string
           format: date-time
+
+    FXPolicy:
+      type: object
+      required: [require_fx_quote]
+      additionalProperties: false
+      properties:
+        require_fx_quote:
+          type: boolean
+          description: |
+            true: refuse (422 `fx_quote_required`) a transaction in more than
+            one asset, and a transfer between ledgers that moves more than one
+            without `fx`. false: accept them, as before.
 
     MetadataPolicy:
       type: object
@@ -3535,7 +3615,7 @@ components:
       type: object
       required: [quote_id, account_id]
       additionalProperties: false
-      description: The quote that prices a posting group and the conversion account whose legs are checked against it.
+      description: The quote that prices a posting group or a transfer between ledgers, and the conversion account whose legs are checked against it.
       properties:
         quote_id:
           type: string
@@ -3861,6 +3941,8 @@ components:
           $ref: '#/components/schemas/TransferSideRequest'
         target:
           $ref: '#/components/schemas/TransferSideRequest'
+        fx:
+          $ref: '#/components/schemas/GroupFX'
 
     TransferSide:
       type: object
@@ -3895,6 +3977,11 @@ components:
           $ref: '#/components/schemas/TransferSide'
         target:
           $ref: '#/components/schemas/TransferSide'
+        fx:
+          oneOf:
+            - $ref: '#/components/schemas/GroupFX'
+            - type: 'null'
+          description: The quote and conversion account the transfer cites; null when it cites none.
         created_at:
           type: string
           format: date-time
