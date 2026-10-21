@@ -1465,6 +1465,12 @@ paths:
         `expired`, frees the reservation and emits `ledger.hold.expired`.
         Until then the funds stay reserved, but a capture or release past
         `expires_at` is already 409 `hold_expired` (and frees them at once).
+
+        A hold is for short authorizations. A payout already sent to a bank is
+        not one: once the hold expires the funds are free to spend and the
+        bank's confirmation can no longer be booked. Book it through
+        `liabilities:payouts_in_flight:<provider>` instead
+        (`docs/payouts-en-vuelo.md`).
       requestBody:
         required: true
         content:
@@ -3141,6 +3147,11 @@ components:
             same `hold.capture` audit row as `POST /v1/holds/{id}/capture`. A
             hold that is not active is 409 `conflict`; one past `expires_at` is 409
             `hold_expired` (ADR-016). Part of the idempotency fingerprint.
+
+            For short authorizations (a card, a checkout) only: a payout already
+            sent to a bank should not wait on a hold, which expires and frees the
+            funds — book it through `liabilities:payouts_in_flight:<provider>`
+            instead (`docs/payouts-en-vuelo.md`).
         adjusts_period_id:
           type: string
           format: uuid
