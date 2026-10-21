@@ -49,7 +49,7 @@ export function useLiveData<T>(loader: () => Promise<T>): LiveState<T> & {
       (err: unknown) => {
         if (cancelled) return;
         if (err instanceof AuthError) {
-          logout();
+          void logout();
           router.replace("/login?reason=expired");
           return;
         }

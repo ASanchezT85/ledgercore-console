@@ -42,6 +42,21 @@ NEXT_PUBLIC_API_URL=http://localhost:8080
 `NEXT_PUBLIC_API_URL` apunta al gateway (Traefik) que enruta hacia los
 servicios Go (`ledger-core`, `identity`, `reconciliation`, `webhooks`).
 
+### Sesión y usuarios (ADR-021)
+
+La consola se entra con **email y contraseña**, no con una API key (la key
+queda solo para integraciones y la consola nunca la guarda). El navegador habla
+con identity a través del proxy same-origin `app/api/identity/[...path]`, que
+reenvía a `LEDGERCORE_IDENTITY_URL` (solo en el servidor; si falta usa
+`NEXT_PUBLIC_API_URL`): así la cookie de sesión (`HttpOnly; Secure;
+SameSite=Lax`) vive en el origen de la consola y identity rechaza cualquier
+petición con cabecera `Origin`. El proxy solo expone las rutas que la consola
+usa. En memoria viven el token CSRF y el JWT de 15 minutos (se pide a
+`POST /v1/auth/session/token` y se renueva solo); en `localStorage` queda solo
+una marca no secreta (`lc_signed_in`) para distinguir una sesión real del modo
+demo. Hasta que exista el SMTP (7.9) los enlaces de invitación y reset se leen
+del log de identity.
+
 ### Modo demo
 
 Los servicios Go se construyen en paralelo, así que la consola **nunca asume
@@ -55,7 +70,10 @@ marca visualmente con el badge «datos de demostración».
 
 | Ruta              | Contenido                                                                 |
 | ----------------- | ------------------------------------------------------------------------- |
-| `/login`          | Pantalla stub (SSO próximamente) con acceso en modo demo                  |
+| `/login`          | Email + contraseña (sesión de servidor, cookie `HttpOnly`), «olvidé mi contraseña» y acceso en modo demo |
+| `/invite?token=…` | Aceptar una invitación: fijar la contraseña                               |
+| `/forgot-password`, `/reset-password?token=…` | Recuperar la contraseña por email (enlace de un solo uso) |
+| `/users`          | Equipo del tenant: invitar, cambiar rol, deshabilitar (solo `owner` y `admin`) |
 | `/`               | Dashboard: balance custodiado, transacciones hoy, discrepancias, salud de conciliación |
 | `/ledgers`        | Ledgers y árbol de cuentas (por `path`) con balances por asset            |
 | `/transactions`   | Tabla con filtros (estado, asset) y drawer con los postings débito/crédito |

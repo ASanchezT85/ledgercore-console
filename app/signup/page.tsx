@@ -217,6 +217,18 @@ function SignupContent() {
                   </Badge>
                 </div>
 
+                <div
+                  role="status"
+                  className="mb-5 rounded-(--radius-control) border border-accent/30 bg-accent-soft px-3 py-3"
+                >
+                  <p className="flex items-center gap-2 text-xs font-semibold text-ink">
+                    <Mail size={14} aria-hidden="true" />
+                    {s.checkEmailTitle}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-muted">{s.checkEmailBody}</p>
+                  <p className="mt-1 text-[11px] text-ink-faint">{s.noSmtpNote}</p>
+                </div>
+
                 <p className="mb-2 text-xs text-ink-muted">
                   {s.keyIntroPre}
                   <span className="font-semibold text-ink">{s.keyIntroStrong}</span>
@@ -262,7 +274,7 @@ function SignupContent() {
                 </p>
 
                 <Link
-                  href="/dashboard"
+                  href="/login"
                   className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] shadow-[0_0_24px_rgb(16_185_129/0.3)] transition-colors hover:bg-accent"
                 >
                   {s.goConsole}

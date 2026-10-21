@@ -4,7 +4,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Fingerprint, KeyRound, Plus, ShieldCheck, Terminal, Webhook } from "lucide-react";
+import { Fingerprint, KeyRound, Plus, ShieldCheck, Terminal, User, Webhook } from "lucide-react";
 import { DemoBadge } from "@/components/demo-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -13,10 +13,11 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { mockDevelopers } from "@/lib/mock-data";
 import {
   apiBaseUrl,
+  getSessionInfo,
   hasSession,
   sessionClaims,
-  storedApiKey,
   type SessionClaims,
+  type SessionInfo,
 } from "@/lib/session";
 
 const LIVE_CURL = (api: string) => `# 1. Exchange your API key for a 15-min JWT
@@ -39,17 +40,12 @@ curl -s -X POST ${api}/v1/transactions \\
     ]
   }'`;
 
-function keyPrefix(key: string | null): string {
-  if (!key) return "—";
-  // lk_sandbox_9f8e7d6c... -> lk_sandbox_9f8e
-  const m = key.match(/^(lk_[a-z]+_[0-9a-f]{4})/i);
-  return m ? `${m[1]}…` : `${key.slice(0, 14)}…`;
-}
-
 function LiveDevelopers() {
   const [claims, setClaims] = useState<SessionClaims | null>(null);
+  const [info, setInfo] = useState<SessionInfo | null>(null);
   useEffect(() => {
     void sessionClaims().then(setClaims);
+    void getSessionInfo().then(setInfo);
   }, []);
   const api = apiBaseUrl() || "http://localhost:8080";
 
@@ -57,7 +53,7 @@ function LiveDevelopers() {
     <>
       <Card
         title="Current session"
-        subtitle="Tenant identity derived from the session JWT"
+        subtitle="Identity and scopes of your signed-in session"
       >
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
@@ -80,10 +76,10 @@ function LiveDevelopers() {
           </div>
           <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
             <dt className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-              <KeyRound size={12} aria-hidden="true" /> API key
+              <User size={12} aria-hidden="true" /> Signed in as
             </dt>
-            <dd className="mt-1 font-mono text-xs text-accent">
-              {keyPrefix(storedApiKey())}
+            <dd className="mt-1 text-xs break-all text-accent">
+              {info ? `${info.user.email} · ${info.user.role}` : "…"}
             </dd>
           </div>
           <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
@@ -100,8 +96,9 @@ function LiveDevelopers() {
           </div>
         </dl>
         <p className="mt-3 text-xs text-ink-faint">
-          The JWT lasts 15 minutes; the console renews it automatically by
-          re-exchanging the API key stored on this device.
+          The JWT lasts 15 minutes; the console renews it automatically from your
+          signed-in session. API keys are for your integrations only: the
+          console never stores one.
         </p>
       </Card>
 
