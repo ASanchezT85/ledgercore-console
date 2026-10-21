@@ -410,6 +410,11 @@ paths:
         also deliver directly, signed with the source's callback secret, to
         `receivePublicCallback` (ADR-017); both routes share this inbox.
         Stored events cannot be changed except for their duplicate counter.
+
+        Ledger idempotency: book the money with the bank's reference
+        (`external_ref`) as `idempotency_key`, never this `event_id`. A provider
+        resend with a new id becomes a second statement row, flagged `duplicate`
+        by the next run. See docs/aviso-proveedor-a-ledger.md.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
