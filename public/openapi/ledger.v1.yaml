@@ -2640,7 +2640,8 @@ components:
         - `metadata_too_large`: more than 50 keys, a key of 0 or more than
           64 bytes, or a value of more than 500 bytes.
         - `metadata_pii_detected`: a key or value looks like an email, a card
-          number, a phone number or an IBAN, in every ledger.
+          number, a phone number or an IBAN, in every ledger. A UUID is never
+          read as personal data.
         - `metadata_key_not_allowed`: the key is outside the ledger's
           allowlist (`PUT /v1/ledgers/{id}/metadata-policy`).
       content:
