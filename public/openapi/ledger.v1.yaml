@@ -284,14 +284,31 @@ paths:
         - `covered` is `customer_assets >= customer_liabilities`;
           `shortfall` is what is missing, `"0"` when covered.
 
-        Only posted balances count (drafts and holds do not), read from the
-        running `account_balances`. Accounts of other types, and `own`
-        accounts, never count. New `liability` accounts default to
+        Only posted balances count (drafts and holds do not). Accounts of
+        other types, and `own` accounts, never count. New `liability` accounts default to
         `customer` and every other type to `own`, so until the backing asset
         accounts are marked `customer` the report shows the full liability
         as shortfall. The top-level `covered` is true when every asset is.
+
+        **As of a date.** Without `as_of` the report is read from the running
+        `account_balances`. With `as_of` it is rebuilt from the postings
+        whose transaction has `effective_at <= as_of` (posted or later
+        reversed, like `trial-balance?as_of=`) **using the `fund_class` each
+        account had at `as_of`**: reclassifying an account afterwards does
+        not change the report for an earlier date. The class history comes
+        from the audit log (`account.update`), so a change made straight in
+        the database is not seen. A posting backdated into the period after
+        the report was first asked does change it: freeze a date with
+        `POST /v1/ledgers/{id}/coverage-snapshots`.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
+        - name: as_of
+          in: query
+          required: false
+          description: RFC 3339 instant; omit for the report as of now.
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
           description: One row per asset with customer-class balances.
@@ -321,6 +338,91 @@ paths:
                         negative_accounts: 1
                         covered: false
                         shortfall: '4700'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/ledgers/{id}/coverage-snapshots:
+    post:
+      operationId: createCoverageSnapshot
+      tags: [Ledgers, Reports]
+      summary: Freeze the coverage report at a date
+      description: |
+        Stores the ledger's coverage report as of `as_of` (see
+        `GET /v1/ledgers/{id}/coverage?as_of=`) as an immutable snapshot with
+        a `snapshot_hash`: the SHA-256, in hex, of its canonical JSON
+        (`ledgercore.coverage.v1`: format, ledger, `as_of` in UTC and the
+        per-asset sums, rows sorted by asset). Snapshots are append-only (the
+        database rejects UPDATE and DELETE), so the report a regulator
+        received for a month-end stays exactly that. Taking the same `as_of`
+        again adds another snapshot, with the same hash unless history
+        changed meanwhile. `as_of` is required and may not be in the future
+        (400 `validation_failed`). The daily `anchor-heads` also publishes
+        the id and hash of each ledger's latest snapshot. Requires
+        `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoverageSnapshotCreate'
+            examples:
+              month_end:
+                value:
+                  as_of: '2026-09-30T23:59:59Z'
+      responses:
+        '201':
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageSnapshot'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      operationId: listCoverageSnapshots
+      tags: [Ledgers, Reports]
+      summary: List a ledger's coverage snapshots
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of snapshots, newest first (by when they were taken).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CoverageSnapshot'
+                  next_cursor:
+                    type: [string, 'null']
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/coverage-snapshots/{id}:
+    get:
+      operationId: getCoverageSnapshot
+      tags: [Ledgers, Reports]
+      summary: Get a coverage snapshot
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The snapshot, exactly as taken.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageSnapshot'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -3020,37 +3122,86 @@ components:
         ledger_id:
           type: string
           format: uuid
+        as_of:
+          type: string
+          format: date-time
+          description: Present when the report was asked with `as_of`.
         covered:
           type: boolean
           description: True when every asset is covered.
         data:
           type: array
           items:
-            type: object
-            required: [asset, exponent, customer_assets, customer_liabilities, customer_receivables, negative_accounts, covered, shortfall]
-            properties:
-              asset:
-                $ref: '#/components/schemas/AssetCode'
-              exponent:
-                type: integer
-              customer_assets:
-                type: string
-                description: Posted debits - credits of the customer-class asset accounts, minor units.
-              customer_liabilities:
-                type: string
-                description: Sum of the positive posted balances (credits - debits) of the customer-class liability accounts, minor units. Accounts in the red do not subtract from it.
-              customer_receivables:
-                type: string
-                description: Sum of the negative posted balances of the customer-class liability accounts, as a positive number, minor units. What those customers owe the platform; not backing.
-              negative_accounts:
-                type: integer
-                description: How many customer-class liability accounts have a negative posted balance in this asset.
-              covered:
-                type: boolean
-                description: customer_assets >= customer_liabilities.
-              shortfall:
-                type: string
-                description: customer_liabilities - customer_assets when not covered, "0" otherwise.
+            $ref: '#/components/schemas/CoverageRow'
+
+    CoverageRow:
+      type: object
+      required: [asset, exponent, customer_assets, customer_liabilities, customer_receivables, negative_accounts, covered, shortfall]
+      properties:
+        asset:
+          $ref: '#/components/schemas/AssetCode'
+        exponent:
+          type: integer
+        customer_assets:
+          type: string
+          description: Posted debits - credits of the customer-class asset accounts, minor units.
+        customer_liabilities:
+          type: string
+          description: Sum of the positive posted balances (credits - debits) of the customer-class liability accounts, minor units. Accounts in the red do not subtract from it.
+        customer_receivables:
+          type: string
+          description: Sum of the negative posted balances of the customer-class liability accounts, as a positive number, minor units. What those customers owe the platform; not backing.
+        negative_accounts:
+          type: integer
+          description: How many customer-class liability accounts have a negative posted balance in this asset.
+        covered:
+          type: boolean
+          description: customer_assets >= customer_liabilities.
+        shortfall:
+          type: string
+          description: customer_liabilities - customer_assets when not covered, "0" otherwise.
+
+    CoverageSnapshotCreate:
+      type: object
+      required: [as_of]
+      additionalProperties: false
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: Instant the report is taken at; not in the future.
+
+    CoverageSnapshot:
+      type: object
+      required: [id, ledger_id, as_of, taken_at, taken_by, snapshot_hash, covered, data]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        as_of:
+          type: string
+          format: date-time
+        taken_at:
+          type: string
+          format: date-time
+          description: When the snapshot was written.
+        taken_by:
+          type: string
+          description: The actor, e.g. `api_key:<id>`.
+        snapshot_hash:
+          type: string
+          description: SHA-256 (hex) of the canonical report, `ledgercore.coverage.v1`. Published by the daily anchor.
+        covered:
+          type: boolean
+          description: True when every asset is covered.
+        data:
+          type: array
+          description: The rows of `Coverage`, as they were at `as_of`.
+          items:
+            $ref: '#/components/schemas/CoverageRow'
 
     AccountCreate:
       type: object
