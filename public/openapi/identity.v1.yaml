@@ -3,22 +3,33 @@ info:
   title: LedgerCore Identity API
   version: 1.0.0
   description: |
-    Tenant registry, API key management, token issuance (EdDSA JWT) and the
-    JWKS used by every service to validate tokens.
+    Tenant registry, API key management, console users (email + password,
+    roles), token issuance (EdDSA JWT) and the JWKS used by every service to
+    validate tokens.
 
     Tenant and API key management endpoints are bootstrap/admin endpoints
     gated by the `X-Admin-Token` shared secret (LEDGERCORE_ADMIN_TOKEN); when
     no admin token is configured they answer 503 `service_unavailable`. Token
     issuance and the JWKS are public.
 
+    **Console users.** People sign in to the console with email + password
+    (`POST /v1/auth/login`), which opens a server-side session carried by an
+    `HttpOnly; Secure; SameSite=Lax` cookie (`lc_session`); every
+    state-changing session request also needs the `X-CSRF-Token` header. The
+    session mints the same 15-minute JWT the services already accept
+    (`POST /v1/auth/session/token`). These endpoints are for the console's
+    server: a request with an `Origin` header is refused. API keys remain the
+    credential for integrations.
+
     Issued tokens are EdDSA (Ed25519) JWTs with these claims:
       - `tenant_id`: tenant UUID
-      - `env`: `sandbox` | `live` (the API key's environment)
+      - `env`: `sandbox` | `live` (the API key's environment; for a console user,
+        `sandbox` when the tenant has an expiry and `live` otherwise)
       - `scopes`: string array; a key gets `["ledger:read", "ledger:write", ...]` by default
         (read/write on every service) and may be created with a narrower list,
         or with `ledger:frozen_override` (record movements on frozen accounts;
         never part of the default)
-      - standard registered claims (`sub` = API key id, `iat`, `exp`; TTL 15 minutes)
+      - standard registered claims (`sub` = `api_key:<id>` or `user:<id>`, `iat`, `exp`; TTL 15 minutes)
 servers:
   - url: http://localhost:8082
     description: Local development (direct)
@@ -28,6 +39,8 @@ tags:
   - name: Tenants
   - name: ApiKeys
   - name: Auth
+  - name: Console
+  - name: Users
 
 paths:
   /v1/tenants:
@@ -244,6 +257,403 @@ paths:
                       message: api key is unknown, revoked, or its tenant is not active
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
+  /v1/auth/login:
+    post:
+      operationId: login
+      tags: [Console]
+      summary: Sign in to the console with email and password
+      description: |
+        Checks the email and password and opens a server-side session. The
+        response sets the `lc_session` cookie (`HttpOnly; Secure; SameSite=Lax`)
+        and returns the CSRF token the caller must echo in `X-CSRF-Token` on
+        every state-changing session request.
+
+        **A lockout runs before the password is checked.** The first 5 wrong
+        passwords for an email (20 for an IP address) are free; each one after
+        that locks the door for twice as long as the last (30 s, 1 min, 2 min…
+        capped at 15 min) and during the wait not even the correct password gets
+        in: `429 rate_limited` with `Retry-After`. The counters are keyed by a
+        hash of the email, so an unknown email behaves exactly like a real one;
+        a wrong password, an unknown email, an invited or disabled account and
+        a suspended tenant all answer the same `401`.
+
+        `state` is `active`, or `password_verified` while a second factor is
+        pending (reserved for roadmap 7.3; no account requires one yet).
+
+        Console endpoints are called by the console's server, never cross-origin
+        from a browser: a request carrying an `Origin` header is refused (`403`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Session opened.
+          headers:
+            Set-Cookie:
+              description: '`lc_session=<opaque>; Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Lax`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, csrf_token, state]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  csrf_token:
+                    type: string
+                  state:
+                    type: string
+                    enum: [active, password_verified]
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Wrong email or password (`unauthorized`); identical whether or not the account exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [Console]
+      summary: End the session
+      description: |
+        Deletes the session and clears the cookie. Needs `X-CSRF-Token` when
+        the cookie maps to a live session; a stale or absent cookie is simply
+        cleared.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      responses:
+        '204':
+          description: Signed out.
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/session:
+    get:
+      operationId: getSession
+      tags: [Console]
+      summary: The current session
+      description: |
+        The signed-in user, their tenant, the scopes their role mints and the
+        CSRF token. The idle timeout is 30 minutes (slides on use) and the
+        absolute lifetime 12 hours.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: The active session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/session/token:
+    post:
+      operationId: issueSessionToken
+      tags: [Console]
+      summary: Mint the 15-minute JWT for the session
+      description: |
+        Issues the same kind of EdDSA JWT as `POST /v1/auth/token`, for the
+        signed-in user: `sub` is `user:<id>`, `tenant_id` the user's tenant,
+        `env` is `sandbox` for a tenant with an expiry (public sandbox) and
+        `live` otherwise, and `scopes` come from the user's role (see the Role
+        table in the Users description). Never `ledger:frozen_override`.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Short-lived JWT.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    const: Bearer
+                  expires_in:
+                    type: integer
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/invitations/accept:
+    post:
+      operationId: acceptInvitation
+      tags: [Console]
+      summary: Accept an invitation and set the password
+      description: |
+        The token comes from the invitation email (valid 7 days, works once).
+        The password must be 12–128 characters, not on the common-passwords
+        list, not a single repeated character and not the email. It is stored
+        as an Argon2id hash (19 MiB, t=2, p=1, 16-byte salt). A used, expired or
+        unknown token is `404 not_found`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenPassword'
+      responses:
+        '200':
+          description: Account activated; sign in with the new password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/auth/password/forgot:
+    post:
+      operationId: forgotPassword
+      tags: [Console]
+      summary: Ask for a password-reset email
+      description: |
+        Always answers `202`, whether or not the address belongs to anyone
+        (and the mail is sent in the background, so the response time tells
+        nothing either). A user who never accepted their invitation gets a
+        fresh invitation instead. The reset link is valid 1 hour and works once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: accepted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/password/reset:
+    post:
+      operationId: resetPassword
+      tags: [Console]
+      summary: Set a new password with a reset token
+      description: |
+        Consumes the reset token, sets the password (same policy as accepting
+        an invitation) and ends every session of that user. A used, expired or
+        unknown token is `404 not_found`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenPassword'
+      responses:
+        '204':
+          description: Password changed.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/users:
+    get:
+      operationId: listUsers
+      tags: [Users]
+      summary: List the tenant's users
+      description: |
+        Owners and admins only. Roles map to token scopes like this:
+
+        | Role | Scopes |
+        | --- | --- |
+        | `owner`, `admin` | `ledger:read`, `ledger:write`, `reconciliation:read`, `reconciliation:write`, `webhooks:read`, `webhooks:write` |
+        | `operator` | `ledger:read`, `ledger:write`, `reconciliation:read`, `reconciliation:write`, `webhooks:read` |
+        | `viewer` | `ledger:read`, `reconciliation:read` |
+        | `auditor` | `ledger:read`, `reconciliation:read`, `webhooks:read` |
+
+        An owner manages everyone; an admin manages operators, viewers and
+        auditors but not admins or owners. `ledger:frozen_override` is never
+        granted to a user.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: Users of the caller's tenant, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/users/invitations:
+    post:
+      operationId: inviteUser
+      tags: [Users]
+      summary: Invite someone to the tenant
+      description: |
+        Creates an `invited` user and emails them a one-time link (valid 7
+        days). Inviting an address that is still `invited` in the same tenant
+        re-sends the invitation with a new token and the new role. An address
+        that already belongs to an active user — in any tenant — is `409
+        conflict`. The caller must be allowed to assign the role.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                role:
+                  $ref: '#/components/schemas/Role'
+      responses:
+        '201':
+          description: Invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The email already belongs to a user (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [Users]
+      summary: Change a user's role or status
+      description: |
+        Send exactly one of `role` or `status` (`active` | `disabled`).
+        Disabling ends the user's sessions. The caller must be allowed to
+        assign both the user's current role and the new one, cannot disable
+        themselves, and a tenant always keeps one active owner (`409 conflict`).
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                role:
+                  $ref: '#/components/schemas/Role'
+                status:
+                  type: string
+                  enum: [active, disabled]
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: It would leave the tenant without an active owner (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/tenants/{id}/owner-invitations:
+    post:
+      operationId: inviteTenantOwner
+      tags: [Tenants]
+      summary: Invite a tenant's first owner
+      description: |
+        Bootstrap for tenants created through the admin API (the public
+        sandbox signup does this by itself): creates an `owner` user and emails
+        them the invitation.
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+      responses:
+        '201':
+          description: Invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The email already belongs to a user (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503': { $ref: '#/components/responses/AdminDisabled' }
+
   /.well-known/jwks.json:
     get:
       operationId: getJWKS
@@ -297,6 +707,17 @@ components:
         missing value answers 401 `invalid_admin_token`; if the service has
         no admin token configured, admin endpoints answer 503 `service_unavailable`.
 
+    consoleSession:
+      type: apiKey
+      in: cookie
+      name: lc_session
+      description: Server-side session cookie set by `POST /v1/auth/login`.
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: The `csrf_token` returned by login / `GET /v1/auth/session`; required on every non-GET session request.
+
   parameters:
     ResourceId:
       name: id
@@ -342,6 +763,28 @@ components:
             $ref: '#/components/schemas/Error'
     NotFound:
       description: Resource not found (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: |
+        Not allowed (`forbidden`): the role does not permit the action, the
+        `X-CSRF-Token` header is missing or wrong, or the request carried an
+        `Origin` header (console endpoints are not available cross-origin).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyAttempts:
+      description: |
+        Locked out (`rate_limited`) for the number of seconds in `Retry-After`.
+        Identical whether or not the account exists.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait.
       content:
         application/json:
           schema:
@@ -482,3 +925,70 @@ components:
             secret:
               type: string
               description: Full plaintext key (`lk_<env>_...`). Shown exactly once; store it securely.
+
+    Role:
+      type: string
+      enum: [owner, admin, operator, viewer, auditor]
+
+    User:
+      type: object
+      required: [id, email, role, status, created_at, last_login_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          description: Lower-cased; unique across the whole platform.
+        role:
+          $ref: '#/components/schemas/Role'
+        status:
+          type: string
+          enum: [invited, active, disabled]
+        created_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+
+    Session:
+      type: object
+      required: [user, tenant, environment, scopes, csrf_token, expires_at]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        tenant:
+          type: object
+          required: [id, name, slug]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            slug:
+              type: string
+        environment:
+          $ref: '#/components/schemas/Environment'
+        scopes:
+          type: array
+          items:
+            type: string
+        csrf_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Absolute end of the session (12 hours after login).
+
+    TokenPassword:
+      type: object
+      required: [token, password]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: The one-time token from the email link.
+        password:
+          type: string
