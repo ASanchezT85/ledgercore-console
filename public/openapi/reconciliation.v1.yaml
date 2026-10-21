@@ -994,7 +994,11 @@ components:
 
   responses:
     BadRequest:
-      description: Invalid input (`validation_failed`) or malformed pagination cursor (`invalid_cursor`).
+      description: |
+        Invalid input (`validation_failed`) or malformed pagination cursor (`invalid_cursor`).
+        Query strings are as strict as bodies: a query parameter the endpoint
+        does not declare is `validation_failed` and the message names it
+        (`unknown query parameter "from" (accepted: ...)`), instead of being ignored.
       content:
         application/json:
           schema:
