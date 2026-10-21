@@ -14,7 +14,10 @@ info:
     Issued tokens are EdDSA (Ed25519) JWTs with these claims:
       - `tenant_id`: tenant UUID
       - `env`: `sandbox` | `live` (the API key's environment)
-      - `scopes`: string array, currently always `["ledger:read", "ledger:write"]`
+      - `scopes`: string array; a key gets `["ledger:read", "ledger:write", ...]` by default
+        (read/write on every service) and may be created with a narrower list,
+        or with `ledger:frozen_override` (record movements on frozen accounts;
+        never part of the default)
       - standard registered claims (`sub` = API key id, `iat`, `exp`; TTL 15 minutes)
 servers:
   - url: http://localhost:8082
@@ -432,6 +435,22 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        scopes:
+          type: array
+          description: |
+            What tokens minted from the key may do. Omitted or empty = read and
+            write on every service. `ledger:frozen_override` is only granted
+            when listed here.
+          items:
+            type: string
+            enum:
+              - ledger:read
+              - ledger:write
+              - ledger:frozen_override
+              - reconciliation:read
+              - reconciliation:write
+              - webhooks:read
+              - webhooks:write
 
     ApiKey:
       type: object

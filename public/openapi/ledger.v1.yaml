@@ -698,6 +698,15 @@ paths:
         returns the original transaction instead of creating a duplicate
         (200 with the `X-Idempotent-Replay: true` response header). The key
         may be sent in the body or via the `Idempotency-Key` request header.
+
+        A `frozen` account rejects new transactions (`account_inactive`). Facts
+        the platform must record whatever the customer does — a payout the bank
+        already paid, a chargeback the PSP already deducted, a seizure order —
+        carry `frozen_override`: it relaxes `frozen` (never `closed`) on the
+        accounts the transaction touches, needs the `ledger:frozen_override`
+        scope (403 without it) and a reason (400 without it), and leaves an
+        audited `transaction.frozen_override` row. Balance, overdraft, periods
+        and metadata rules still apply.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -777,6 +786,14 @@ paths:
                 $ref: '#/components/schemas/Transaction'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `frozen_override` was sent and the token lacks the
+            `ledger:frozen_override` scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
@@ -1040,6 +1057,12 @@ paths:
         postings, links both, and marks the original as reversed.
         The compensating transaction is announced with
         `ledger.transaction.posted`, followed by `ledger.transaction.reversed`.
+
+        Reversing onto a `frozen` account is rejected (`account_inactive`)
+        unless the body carries `frozen_override` (a chargeback the PSP already
+        deducted must be recorded even if the customer is frozen); see
+        `POST /v1/transactions`. The audit row names the reversal and the
+        original in `reverses`.
       parameters:
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
@@ -1056,6 +1079,8 @@ paths:
                 reason:
                   type: string
                   maxLength: 1024
+                frozen_override:
+                  $ref: '#/components/schemas/FrozenOverride'
             examples:
               chargeback:
                 value:
@@ -1094,6 +1119,14 @@ paths:
                     posted_at: '2026-07-25T09:00:00Z'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `frozen_override` was sent and the token lacks the
+            `ledger:frozen_override` scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
@@ -3267,6 +3300,32 @@ components:
             adjustment is refused with 422 `approval_required`. An adjustment
             is never a draft: with `status: draft` it is 400
             `validation_failed` (ADR-009).
+        frozen_override:
+          $ref: '#/components/schemas/FrozenOverride'
+
+    FrozenOverride:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      description: |
+        Records a movement on `frozen` accounts that the platform must book
+        whatever the customer does. Needs the `ledger:frozen_override` scope
+        (403 without it; no default key has it). It relaxes `frozen` only, on
+        the accounts the request touches: a `closed` account is still
+        `account_inactive`, and balance, overdraft, period and metadata rules
+        and the hash chain apply as always. Only for `status: posted`
+        transactions and reversals; posting groups, posting events, ledger
+        transfers and holds do not accept it. When it relaxed at least one
+        frozen account it writes a `transaction.frozen_override` audit row
+        (actor, frozen accounts, reason) in the same database transaction;
+        a replay writes none. Part of the idempotency fingerprint.
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Why the movement is recorded on a frozen account (400 when missing or blank).
+          examples: ['Bank paid payout po_42 on 2026-10-21']
 
     Transaction:
       type: object
