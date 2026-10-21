@@ -15,9 +15,11 @@ import { LangToggle, useLang } from "@/components/language";
  */
 export function PublicHeader({
   hideLogin = false,
+  hideSignup = false,
   showHome = false,
 }: {
   hideLogin?: boolean;
+  hideSignup?: boolean;
   showHome?: boolean;
 }) {
   const { t } = useLang();
@@ -52,12 +54,14 @@ export function PublicHeader({
             {t.nav.login}
           </Link>
         )}
-        <Link
-          href="/signup"
-          className="inline-flex h-11 items-center rounded-(--radius-control) border border-edge-strong px-4 text-sm font-medium text-ink transition-colors hover:border-accent/60 hover:text-accent"
-        >
-          {t.nav.trySandbox}
-        </Link>
+        {!hideSignup && (
+          <Link
+            href="/signup"
+            className="inline-flex h-11 items-center rounded-(--radius-control) border border-edge-strong px-4 text-sm font-medium text-ink transition-colors hover:border-accent/60 hover:text-accent"
+          >
+            {t.nav.trySandbox}
+          </Link>
+        )}
       </nav>
     </header>
   );
