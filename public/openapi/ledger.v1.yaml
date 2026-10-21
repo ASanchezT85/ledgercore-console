@@ -229,7 +229,13 @@ paths:
           safeguarding accounts that hold customer money.
         - `customer_liabilities`: posted balance (credits - debits) of its
           `liability` accounts with `fund_class: customer` — wallets and
-          other balances owed to customers.
+          other balances owed to customers. Only accounts with a positive
+          balance add to it: a wallet in the red (`allow_negative`) never
+          lowers what is owed to the others.
+        - `customer_receivables`: the sum of the negative balances of those
+          same accounts, as a positive number — what customers owe the
+          platform. `negative_accounts` counts them. They are reported apart
+          and never reduce `customer_liabilities` nor count as backing.
         - `covered` is `customer_assets >= customer_liabilities`;
           `shortfall` is what is missing, `"0"` when covered.
 
@@ -258,12 +264,16 @@ paths:
                         exponent: 2
                         customer_assets: '50000'
                         customer_liabilities: '42000'
+                        customer_receivables: '0'
+                        negative_accounts: 0
                         covered: true
                         shortfall: '0'
                       - asset: USD
                         exponent: 2
                         customer_assets: '5000'
                         customer_liabilities: '9700'
+                        customer_receivables: '500'
+                        negative_accounts: 1
                         covered: false
                         shortfall: '4700'
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -2904,7 +2914,7 @@ components:
           type: array
           items:
             type: object
-            required: [asset, exponent, customer_assets, customer_liabilities, covered, shortfall]
+            required: [asset, exponent, customer_assets, customer_liabilities, customer_receivables, negative_accounts, covered, shortfall]
             properties:
               asset:
                 $ref: '#/components/schemas/AssetCode'
@@ -2915,7 +2925,13 @@ components:
                 description: Posted debits - credits of the customer-class asset accounts, minor units.
               customer_liabilities:
                 type: string
-                description: Posted credits - debits of the customer-class liability accounts, minor units.
+                description: Sum of the positive posted balances (credits - debits) of the customer-class liability accounts, minor units. Accounts in the red do not subtract from it.
+              customer_receivables:
+                type: string
+                description: Sum of the negative posted balances of the customer-class liability accounts, as a positive number, minor units. What those customers owe the platform; not backing.
+              negative_accounts:
+                type: integer
+                description: How many customer-class liability accounts have a negative posted balance in this asset.
               covered:
                 type: boolean
                 description: customer_assets >= customer_liabilities.
