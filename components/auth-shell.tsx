@@ -10,13 +10,13 @@ import { BrandLockup } from "@/components/logo";
 import { LanguageProvider, useLang } from "@/components/language";
 import { PublicHeader } from "@/components/public-header";
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, wide }: { children: ReactNode; wide: boolean }) {
   const { t } = useLang();
   return (
     <div className="flex min-h-screen flex-col">
       <PublicHeader hideLogin showHome />
       <div className="flex flex-1 items-center justify-center px-4 py-10">
-        <div className="w-full max-w-sm">
+        <div className={wide ? "w-full max-w-xl" : "w-full max-w-sm"}>
           <div className="mb-8 flex flex-col items-center gap-3 text-center">
             <BrandLockup size={40} />
             <p className="text-sm text-ink-faint">{t.login.tagline}</p>
@@ -32,10 +32,10 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 /** Page frame shared by the public authentication screens. */
-export function AuthPage({ children }: { children: ReactNode }) {
+export function AuthPage({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
     <LanguageProvider>
-      <Shell>{children}</Shell>
+      <Shell wide={wide}>{children}</Shell>
     </LanguageProvider>
   );
 }

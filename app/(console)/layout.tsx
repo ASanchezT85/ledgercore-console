@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 import type { ReactNode } from "react";
+import { AccountGate } from "@/components/account-gate";
 import { AuthorCredit } from "@/components/author-credit";
 import { Sidebar } from "@/components/ui/sidebar";
 
@@ -11,6 +12,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
       <Sidebar />
       <div className="flex min-h-screen flex-col pl-64">
         <main className="mx-auto w-full max-w-7xl flex-1 px-8 py-8">
+          <AccountGate />
           {children}
         </main>
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-8 py-4">

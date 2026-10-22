@@ -28,6 +28,10 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^api-credentials\/[0-9a-f-]{36}$/i, methods: ["DELETE"] },
   { pattern: /^users\/[0-9a-f-]{36}\/2fa$/i, methods: ["DELETE"] },
   { pattern: /^auth\/2fa$/, methods: ["GET"] },
+  // Onboarding (7.4): the public signup + email steps, and the session ones.
+  { pattern: /^onboarding$/, methods: ["GET"] },
+  { pattern: /^onboarding\/accounts$/, methods: ["POST"] },
+  { pattern: /^onboarding\/(email\/(verify|resend)|phone\/(send|verify)|review)$/, methods: ["POST"] },
   { pattern: /^auth\/2fa\/(enrollment|enrollment\/confirm|verify|recovery-codes)$/, methods: ["POST"] },
 ];
 

@@ -108,6 +108,13 @@ function LoginForm() {
         </Link>
         .
       </p>
+      <p className="mt-1 text-center text-[11px] text-ink-faint">
+        {c.registerPre}
+        <Link href="/register" className="text-accent hover:underline">
+          {c.registerLink}
+        </Link>
+        .
+      </p>
 
       <div className="my-5 flex items-center gap-3">
         <span className="h-px flex-1 bg-edge" aria-hidden="true" />

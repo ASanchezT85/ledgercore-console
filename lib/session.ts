@@ -56,6 +56,8 @@ export interface SessionInfo {
   user: ConsoleUser;
   tenant: { id: string; name: string; slug: string };
   environment: "sandbox" | "live";
+  /** Onboarding status of the tenant (7.4): live credentials need "approved". */
+  account_status: string;
   scopes: string[];
   csrf_token: string;
   expires_at: string;
