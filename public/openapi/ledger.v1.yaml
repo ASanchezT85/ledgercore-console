@@ -3503,6 +3503,15 @@ paths:
         `Idempotency-Key` request header. `metadata` follows the rules and the
         `transaction_keys` allowlist of a transaction's. Requires
         `ledger:write`.
+
+        `parent_movement_id` opens a **return** (a refund or chargeback) of a
+        `completed` movement of the same ledger (ADR-019 §6): 404 when it does
+        not exist, 409 `movement_stage_invalid` when it has not completed,
+        400 when it is itself a return. Its first write is usually a full or
+        partial reversal (`amount`) of the parent's `complete` transaction,
+        tagged with the return movement, which puts the money back in its
+        transit; it completes by paying the origin. The parent's `figures`
+        then net the return.
       requestBody:
         required: true
         content:
@@ -3647,6 +3656,76 @@ paths:
                   next_cursor:
                     type: [string, 'null']
                     description: Opaque cursor for the next page; null when exhausted.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/movements/summary:
+    get:
+      operationId: summarizeMovements
+      tags: [Movements]
+      summary: Sum movement figures by type
+      description: |
+        Sums the revenue, cost and margin of the movements **closed** in
+        `[from, to)` (on `closed_at`), by `type` and asset (ADR-019 §5). Each
+        movement counts only its own writes: a return shows under its own type
+        (e.g. a negative margin under `refund`) and nothing is counted twice.
+        Grouping by a metadata dimension is roadmap 6.7. Requires
+        `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - name: ledger_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          description: Closed at or after this instant (RFC 3339).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Closed strictly before this instant (RFC 3339); after `from`.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: One row per type and asset, in that order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [type, asset, movements, revenue, cost, margin]
+                      properties:
+                        type:
+                          type: string
+                        asset:
+                          type: string
+                        movements:
+                          type: integer
+                          description: Closed movements of the type with writes in the asset.
+                        revenue:
+                          $ref: '#/components/schemas/SignedMinorUnits'
+                        cost:
+                          $ref: '#/components/schemas/SignedMinorUnits'
+                        margin:
+                          $ref: '#/components/schemas/SignedMinorUnits'
+              examples:
+                remittances:
+                  value:
+                    data:
+                      - { type: refund, asset: USD, movements: 1, revenue: '-210', cost: '-75', margin: '-135' }
+                      - { type: remittance, asset: USD, movements: 1, revenue: '420', cost: '150', margin: '270' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
@@ -6129,10 +6208,34 @@ components:
           description: The quote the operation was priced with (an `FXQuote` of the tenant), if any.
         metadata:
           $ref: '#/components/schemas/Metadata'
+        parent_movement_id:
+          type: string
+          format: uuid
+          description: Opens a return of this completed movement (ADR-019 §6). Part of the idempotency fingerprint.
+
+    SignedMinorUnits:
+      type: string
+      pattern: '^-?[0-9]+$'
+      description: An amount in minor units of the row's asset, as a string; may be negative.
+
+    MovementFigures:
+      type: object
+      required: [asset, transit, revenue, cost, margin]
+      properties:
+        asset:
+          type: string
+        transit:
+          $ref: '#/components/schemas/SignedMinorUnits'
+        revenue:
+          $ref: '#/components/schemas/SignedMinorUnits'
+        cost:
+          $ref: '#/components/schemas/SignedMinorUnits'
+        margin:
+          $ref: '#/components/schemas/SignedMinorUnits'
 
     Movement:
       type: object
-      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, transit_residual, metadata, stale_at]
+      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, transit_residual, metadata, stale_at, parent_movement_id]
       properties:
         id:
           type: string
@@ -6181,6 +6284,23 @@ components:
             When the stale sweeper found the movement open past its ledger's
             `stale_movement_after` and emitted `ledger.movement.stale` (ADR-019
             §8). Set once; kept after the movement closes. `null` otherwise.
+        parent_movement_id:
+          type: [string, 'null']
+          format: uuid
+          description: The movement this one returns (a refund or chargeback, ADR-019 §6); `null` otherwise.
+        figures:
+          type: array
+          items:
+            $ref: '#/components/schemas/MovementFigures'
+          description: |
+            Derived per asset on `GET /v1/movements/{id}` and `GET
+            /v1/movements` (ADR-019 §5); absent on write responses. `transit`
+            is the movement's own; `revenue` (net credits on `revenue`
+            accounts), `cost` (net debits on `expense` accounts) and `margin =
+            revenue − cost` add those of its returns, so a refunded operation
+            shows its net margin. Counted over the posted (or since reversed)
+            transactions tagged with the movement; an untagged reversal is not
+            counted. Assets with all four at zero are left out.
 
     LedgerTransfer:
       type: object
