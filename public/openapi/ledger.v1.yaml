@@ -1382,6 +1382,110 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/holders:
+    post:
+      operationId: onboardHolder
+      tags: [Ledgers, Accounts]
+      summary: Create a holder's fixed subtree in one call
+      description: |
+        Creates, in one database transaction, the parent
+        `liabilities:holder:<holder>` (an aggregate, so the subtree can be
+        frozen or read as one) and the leaves asked for (ADR-020 section 1;
+        6.5): `available` (default), `incoming` (customer liabilities, strict)
+        and `receivable` (an `own` asset, what the holder owes). Accounts hold
+        every asset, so there is one leaf per kind, not one per asset.
+        Requires the `ledger:write` scope.
+
+        **Idempotent.** Repeating the call returns what exists (`created:
+        false`); a later call with another `leaves` adds only the new ones. The
+        status is 201 when any account was created and 200 when none was. An
+        account of the same name with another type, fund class or liquidity is
+        409 `conflict` and nothing is created. A provider onboarding adds
+        nothing per holder.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardHolder'
+            examples:
+              ana:
+                value:
+                  holder: ana
+                  leaves: [available, incoming]
+      responses:
+        '200':
+          description: Every account already existed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Onboarded'
+        '201':
+          description: At least one account was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Onboarded'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/ledgers/{id}/providers:
+    post:
+      operationId: onboardProvider
+      tags: [Ledgers, Accounts]
+      summary: Onboard a provider with its own accounts in one call
+      description: |
+        Creates, in one database transaction, the accounts of a provider
+        (ADR-020 section 1; 6.5), each carrying `provider` (6.6): `custody`
+        (`assets:provider:<p>:custody`, `fund_class: customer`, liquid),
+        `receivable` (an `own` asset: settlements still to arrive) and `payable`
+        (`liabilities:provider:<p>:payable`, `own`). All three by default. The
+        provider is lower-cased. Requires the `ledger:write` scope. A new
+        provider adds no account per holder.
+
+        Idempotent like `POST /v1/ledgers/{id}/holders`: 201 when any account
+        was created, 200 when none was, 409 `conflict` when an account of that
+        name exists with another shape.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardProvider'
+            examples:
+              bank:
+                value:
+                  provider: bank_x
+      responses:
+        '200':
+          description: Every account already existed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Onboarded'
+        '201':
+          description: At least one account was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Onboarded'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /v1/ledgers/{id}/providers/{provider}/freeze:
     post:
       operationId: freezeProvider
@@ -1394,8 +1498,8 @@ paths:
         through `P` once the call returns, and no movement commits between the
         first account and the last. Requires the `ledger:write` scope.
 
-        An account belongs to `P` when `metadata.provider` is `P` or its path
-        has the segment `provider` followed by `P` (the rule of
+        An account belongs to `P` when its stored `provider` attribute is `P`
+        (see `AccountCreate.provider`, set at creation; the same rule as
         `GET /v1/provider-positions`; names compare in lower case). Only `asset`
         and `liability` accounts are frozen: expense accounts of `P` (fees, loss
         write-downs) stay open for bookkeeping. Parents of those accounts are
@@ -5649,6 +5753,51 @@ components:
           type: string
           maxLength: 128
           description: Optional case or ticket number of the compliance case.
+
+    OnboardHolder:
+      type: object
+      required: [holder]
+      additionalProperties: false
+      properties:
+        holder:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$'
+          description: The holder id. No `:` or `/`, which separate levels of the path.
+        leaves:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [available, incoming, receivable] }
+          description: Defaults to `[available]`.
+
+    OnboardProvider:
+      type: object
+      required: [provider]
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$'
+          description: The provider name; stored in lower case.
+        leaves:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [custody, receivable, payable] }
+          description: Defaults to all three.
+
+    Onboarded:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The accounts of the call in creation order (the parent first for a holder), each with whether this call created it.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Account'
+              - type: object
+                required: [created]
+                properties:
+                  created: { type: boolean }
 
     AccountSubtree:
       type: object

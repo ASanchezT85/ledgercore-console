@@ -835,6 +835,94 @@
               }
             },
             {
+              "name": "Create a holder's fixed subtree in one call",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"holder\": \"ana\",\n  \"leaves\": [\n    \"available\",\n    \"incoming\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/holders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "holders"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Creates, in one database transaction, the parent\n`liabilities:holder:<holder>` (an aggregate, so the subtree can be\nfrozen or read as one) and the leaves asked for (ADR-020 section 1;\n6.5): `available` (default), `incoming` (customer liabilities, strict)\nand `receivable` (an `own` asset, what the holder owes). Accounts hold\nevery asset, so there is one leaf per kind, not one per asset.\nRequires the `ledger:write` scope.\n\n**Idempotent.** Repeating the call returns what exists (`created:\nfalse`); a later call with another `leaves` adds only the new ones. The\nstatus is 201 when any account was created and 200 when none was. An\naccount of the same name with another type, fund class or liquidity is\n409 `conflict` and nothing is created. A provider onboarding adds\nnothing per holder."
+              }
+            },
+            {
+              "name": "Onboard a provider with its own accounts in one call",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"provider\": \"bank_x\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/providers",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "providers"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Creates, in one database transaction, the accounts of a provider\n(ADR-020 section 1; 6.5), each carrying `provider` (6.6): `custody`\n(`assets:provider:<p>:custody`, `fund_class: customer`, liquid),\n`receivable` (an `own` asset: settlements still to arrive) and `payable`\n(`liabilities:provider:<p>:payable`, `own`). All three by default. The\nprovider is lower-cased. Requires the `ledger:write` scope. A new\nprovider adds no account per holder.\n\nIdempotent like `POST /v1/ledgers/{id}/holders`: 201 when any account\nwas created, 200 when none was, 409 `conflict` when an account of that\nname exists with another shape."
+              }
+            },
+            {
               "name": "Freeze every account of a provider",
               "request": {
                 "method": "POST",
@@ -881,7 +969,7 @@
                     }
                   ]
                 },
-                "description": "Freezes the custody, receivable and payable accounts of provider `P` in\none database transaction, with the locks, modes, audit and events of\n`POST /v1/accounts/{id}/freeze`: nothing captures, dispatches or settles\nthrough `P` once the call returns, and no movement commits between the\nfirst account and the last. Requires the `ledger:write` scope.\n\nAn account belongs to `P` when `metadata.provider` is `P` or its path\nhas the segment `provider` followed by `P` (the rule of\n`GET /v1/provider-positions`; names compare in lower case). Only `asset`\nand `liability` accounts are frozen: expense accounts of `P` (fees, loss\nwrite-downs) stay open for bookkeeping. Parents of those accounts are\nfrozen too, as in the account freeze.\n\n**Holders' wallets stay active.** Their money is a claim on the\noperator, not on `P`; they keep spending, paying and receiving. Which\nholders carry the loss is a separate decision, set by the ledger's\nloss-allocation rule: under `pro_rata_pool` nothing else moves when a\nprovider is frozen and a loss is shared pro rata when it is recognized.\nWith no rule set, nothing else moves either.\n\n**Under `by_provider`** the same transaction also moves each named\nholder's traced portion at `P` (its `P` share in\n`GET /v1/ledgers/{id}/exposure-matrix`) out of its wallet into\n`liabilities:holder:<h>:provider_claim:<P>`, a customer liability\ncreated when missing and frozen (`all`, same `reason` and `case_ref`):\nwhat the holder had at `P` can no longer be spent, and the rest of the\nwallet stays active. The wallet legs come from the holder's postable\ncustomer liabilities, `…:available` first, each up to what it has free\nof holds (held money stays). It is one posted transaction with\nreference `provider_claim:<P>`, booked with `frozen_override` and the\nfreeze `reason` (a holder frozen on its own is moved too, and audited\nas `transaction.frozen_override`). The call takes the ledger lock\nexclusively, so it waits for the writes in flight and no write commits\nbetween the fold and the move. Freezing again moves only what is still\ntraced to `P` in a wallet (nothing, after the first time); unfreezing\nleaves the claims frozen. A claim path that would turn an account with\nactivity into a parent is 422 `parent_has_activity` and nothing is\nfrozen.\n\n`mode` (`all` by default, `debits`, `credits`), `reason` (required, 1 to\n1024 characters) and `case_ref` (optional, up to 128) are the same as on\nthe account freeze. A provider with no account in the ledger is 404.\nThe response lists every account of `P` after the change, followed by\nthe claim accounts frozen by the call."
+                "description": "Freezes the custody, receivable and payable accounts of provider `P` in\none database transaction, with the locks, modes, audit and events of\n`POST /v1/accounts/{id}/freeze`: nothing captures, dispatches or settles\nthrough `P` once the call returns, and no movement commits between the\nfirst account and the last. Requires the `ledger:write` scope.\n\nAn account belongs to `P` when its stored `provider` attribute is `P`\n(see `AccountCreate.provider`, set at creation; the same rule as\n`GET /v1/provider-positions`; names compare in lower case). Only `asset`\nand `liability` accounts are frozen: expense accounts of `P` (fees, loss\nwrite-downs) stay open for bookkeeping. Parents of those accounts are\nfrozen too, as in the account freeze.\n\n**Holders' wallets stay active.** Their money is a claim on the\noperator, not on `P`; they keep spending, paying and receiving. Which\nholders carry the loss is a separate decision, set by the ledger's\nloss-allocation rule: under `pro_rata_pool` nothing else moves when a\nprovider is frozen and a loss is shared pro rata when it is recognized.\nWith no rule set, nothing else moves either.\n\n**Under `by_provider`** the same transaction also moves each named\nholder's traced portion at `P` (its `P` share in\n`GET /v1/ledgers/{id}/exposure-matrix`) out of its wallet into\n`liabilities:holder:<h>:provider_claim:<P>`, a customer liability\ncreated when missing and frozen (`all`, same `reason` and `case_ref`):\nwhat the holder had at `P` can no longer be spent, and the rest of the\nwallet stays active. The wallet legs come from the holder's postable\ncustomer liabilities, `…:available` first, each up to what it has free\nof holds (held money stays). It is one posted transaction with\nreference `provider_claim:<P>`, booked with `frozen_override` and the\nfreeze `reason` (a holder frozen on its own is moved too, and audited\nas `transaction.frozen_override`). The call takes the ledger lock\nexclusively, so it waits for the writes in flight and no write commits\nbetween the fold and the move. Freezing again moves only what is still\ntraced to `P` in a wallet (nothing, after the first time); unfreezing\nleaves the claims frozen. A claim path that would turn an account with\nactivity into a parent is 422 `parent_has_activity` and nothing is\nfrozen.\n\n`mode` (`all` by default, `debits`, `credits`), `reason` (required, 1 to\n1024 characters) and `case_ref` (optional, up to 128) are the same as on\nthe account freeze. A provider with no account in the ledger is 404.\nThe response lists every account of `P` after the change, followed by\nthe claim accounts frozen by the call."
               }
             },
             {
