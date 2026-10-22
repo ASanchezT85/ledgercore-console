@@ -52,3 +52,44 @@ export function getAccount(tenantId: string): Promise<ReviewAccount> {
 export function decide(tenantId: string, decision: Decision, reason: string): Promise<ReviewAccount> {
   return identityFetch<ReviewAccount>("POST", `backoffice/accounts/${tenantId}/decision`, { decision, reason }, { csrf: true });
 }
+
+export interface IntegrationKey {
+  name: string;
+  required: boolean;
+  configured: boolean;
+  source?: "database" | "environment";
+  rotated_at?: string;
+  rotated_by?: string;
+}
+
+/** Readiness of one integration in one environment. The API never returns a value. */
+export interface Integration {
+  provider: "smtp" | "sms" | "ipinfo";
+  environment: "sandbox" | "live";
+  ready: boolean;
+  keys: IntegrationKey[];
+}
+
+export async function listIntegrations(): Promise<Integration[]> {
+  const res = await identityFetch<{ data: Integration[] }>("GET", "backoffice/integrations");
+  return res.data;
+}
+
+const keyPath = (i: Pick<Integration, "provider" | "environment">, name: string) =>
+  `backoffice/integrations/${i.provider}/${i.environment}/${encodeURIComponent(name)}`;
+
+/** Stores or rotates one key. The secret is write-only: it is sent once and never read back. */
+export function setIntegrationSecret(
+  i: Pick<Integration, "provider" | "environment">,
+  name: string,
+  secret: string,
+): Promise<unknown> {
+  return identityFetch("PUT", keyPath(i, name), { secret }, { csrf: true });
+}
+
+export function deleteIntegrationSecret(
+  i: Pick<Integration, "provider" | "environment">,
+  name: string,
+): Promise<void> {
+  return identityFetch<void>("DELETE", keyPath(i, name), undefined, { csrf: true });
+}

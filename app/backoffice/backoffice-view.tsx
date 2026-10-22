@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/auth-shell";
 import { LanguageProvider, useLang } from "@/components/language";
+import { IntegrationsPanel } from "./integrations-panel";
 import { SessionHeader } from "@/components/session-header";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -246,6 +247,7 @@ function Desk() {
   const [filter, setFilter] = useState<QueueFilter>("under_review");
   const [list, setList] = useState<ReviewAccount[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [tab, setTab] = useState<"accounts" | "integrations">("accounts");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -287,8 +289,34 @@ function Desk() {
   }
   if (selected) return <Detail id={selected} onBack={() => setSelected(null)} onChanged={() => void refresh()} />;
 
+  const tabs = (
+    <div role="group" aria-label="Back office" className="mb-4 flex gap-1.5">
+      {(["accounts", "integrations"] as const).map((id) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={tab === id}
+          onClick={() => setTab(id)}
+          className={`inline-flex h-9 items-center rounded-(--radius-control) border px-3 text-xs font-medium transition-colors ${
+            tab === id ? "border-accent/60 bg-accent-soft text-accent" : "border-edge-strong text-ink-muted hover:text-ink"
+          }`}
+        >
+          {id === "accounts" ? (lang === "es" ? "Cuentas" : "Accounts") : lang === "es" ? "Integraciones" : "Integrations"}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "integrations")
+    return (
+      <>
+        {tabs}
+        <IntegrationsPanel />
+      </>
+    );
+
   return (
     <>
+      {tabs}
       <div role="group" aria-label={c.filtersAria} className="mb-4 flex flex-wrap gap-1.5">
         {FILTERS.map((f) => (
           <button
