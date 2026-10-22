@@ -91,6 +91,7 @@ export const GUIDE: GuideContent = {
             items: [
               "Los scopes son obligatorios y no hay ninguno por defecto: marca solo los que la integración necesita (ledger:read, ledger:write, reconciliation:read, reconciliation:write, webhooks:read, webhooks:write). ledger:frozen_override es peligroso y debe pedirse a propósito.",
               "Cada credencial queda sellada a su ambiente: una credencial sandbox es rechazada por producción (y al revés) con environment_mismatch.",
+              "Opcional y recomendado en producción: limita la credencial a las IPs de tu infraestructura (IPv4 o IPv6, una IP o un CIDR). En modo observe la petición pasa y la IP fuera de la lista queda registrada; en modo enforce se rechaza con 403 ip_not_allowed. Una credencial live creada con lista nace en enforce. Edita la lista desde Developers.",
               "La revocación y la expiración se leen de la base de datos en cada request: el efecto es inmediato.",
             ],
           },
@@ -197,6 +198,7 @@ export const GUIDE: GuideContent = {
               ["credential_expired", "401", "La credencial venció. Rótala o crea otra."],
               ["credential_revoked", "401", "La credencial fue revocada. Crea otra."],
               ["environment_mismatch", "403", "Credencial de otro ambiente que el despliegue (sandbox contra producción o al revés)."],
+              ["ip_not_allowed", "403", "La credencial tiene lista de IPs en modo enforce y la petición vino de una IP fuera de ella."],
               ["legacy_credential_retired", "401", "Las llaves lk_ ya no funcionan (ver abajo)."],
             ],
           },
@@ -226,6 +228,7 @@ export const GUIDE: GuideContent = {
             items: [
               "Scopes are required and none is granted by default: tick only what the integration needs (ledger:read, ledger:write, reconciliation:read, reconciliation:write, webhooks:read, webhooks:write). ledger:frozen_override is dangerous and must be requested on purpose.",
               "Every credential is sealed to its environment: a sandbox credential is refused by production (and the other way round) with environment_mismatch.",
+              "Optional and recommended in production: restrict the credential to your infrastructure's IPs (IPv4 or IPv6, an address or a CIDR). In observe mode the request passes and an address outside the list is recorded; in enforce mode it is refused with 403 ip_not_allowed. A live credential created with a list is born in enforce. Edit the list from Developers.",
               "Revocation and expiry are read from the database on every request: the effect is immediate.",
             ],
           },
@@ -330,6 +333,7 @@ export const GUIDE: GuideContent = {
               ["credential_expired", "401", "The credential expired. Rotate it or create another."],
               ["credential_revoked", "401", "The credential was revoked. Create another."],
               ["environment_mismatch", "403", "Credential from another environment than the deployment (sandbox against production or the other way round)."],
+              ["ip_not_allowed", "403", "The credential has an IP allow-list in enforce mode and the request came from an address outside it."],
               ["legacy_credential_retired", "401", "lk_ keys no longer work (see below)."],
             ],
           },

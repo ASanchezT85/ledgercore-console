@@ -325,6 +325,77 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/api-credentials/{id}/ip-allowlist:
+    put:
+      operationId: updateApiCredentialIpAllowlist
+      tags: [ApiCredentials]
+      summary: Edit a credential's IP allow-list and mode
+      description: |
+        Replaces `allowed_cidrs` (IPv4 and IPv6, a bare address is a /32 or /128,
+        at most 50, `/0` is refused) and/or `ip_mode`. Omit `allowed_cidrs` to keep
+        the list; send `[]` to clear it (which also drops `enforce` to `observe`
+        unless `ip_mode` says otherwise). `enforce` needs at least one entry.
+        Every change is audited as `api_credential.ip_allowlist.update`.
+
+        With `ip_mode: observe` a request from outside the list passes and the
+        address is counted; with `enforce` it is refused with `403 ip_not_allowed`.
+        An empty list means any address. The address is the TCP peer of the
+        service that receives the request, or the client reported through
+        `X-Forwarded-For` only when that peer is one of the service's trusted
+        proxies (`LEDGERCORE_TRUSTED_PROXIES`).
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCredentialIpAllowlist'
+      responses:
+        '200':
+          description: The credential with its new list and mode.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiCredential'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/api-credentials/{id}/ip-events:
+    get:
+      operationId: listApiCredentialIpEvents
+      tags: [ApiCredentials]
+      summary: Addresses seen outside a credential's allow-list
+      description: |
+        The 50 most recently seen distinct addresses that used the credential from
+        outside its list, newest first, each with a hit counter and whether it
+        was `observed` (let through) or `rejected` (`ip_not_allowed`).
+      security:
+        - consoleSession: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Recent addresses.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiCredentialIpEvent'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/tenants/{id}/api-credentials:
     post:
       operationId: adminCreateApiCredential
@@ -1488,7 +1559,7 @@ components:
                 service_unavailable, internal, signature_missing,
                 signature_invalid, timestamp_skew, nonce_reused,
                 credential_expired, credential_revoked,
-                environment_mismatch, legacy_credential_retired.
+                environment_mismatch, ip_not_allowed, legacy_credential_retired.
             message:
               type: string
             request_id:
@@ -1621,6 +1692,56 @@ components:
           minimum: 1
           maximum: 365
           description: Term of the credential. Default 180.
+        allowed_cidrs:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+          description: Optional IP allow-list (IPv4/IPv6 addresses or CIDRs). Empty or absent means any address.
+        ip_mode:
+          $ref: '#/components/schemas/IpMode'
+
+    IpMode:
+      type: string
+      enum: [observe, enforce]
+      description: |
+        What a request from outside a non-empty `allowed_cidrs` gets. `observe`
+        lets it through and counts the address; `enforce` answers `403 ip_not_allowed`.
+        Default when omitted: `enforce` for a `live` credential created with a
+        list, `observe` otherwise.
+
+    ApiCredentialIpAllowlist:
+      type: object
+      additionalProperties: false
+      properties:
+        allowed_cidrs:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+          description: The new list. Omit to keep the current one; `[]` clears it.
+        ip_mode:
+          $ref: '#/components/schemas/IpMode'
+
+    ApiCredentialIpEvent:
+      type: object
+      required: [ip, outcome, hits, first_seen_at, last_seen_at]
+      properties:
+        ip:
+          type: string
+          description: The address, or `unknown` when the service could not tell.
+        outcome:
+          type: string
+          enum: [observed, rejected]
+        hits:
+          type: integer
+          format: int64
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
 
     ApiCredentialRotate:
       type: object
@@ -1639,7 +1760,7 @@ components:
 
     ApiCredential:
       type: object
-      required: [id, tenant_id, environment, name, api_key, scopes, allowed_cidrs, status, created_by, created_at, expires_at, revoked_at, rotated_to]
+      required: [id, tenant_id, environment, name, api_key, scopes, allowed_cidrs, ip_mode, status, created_by, created_at, expires_at, revoked_at, rotated_to]
       properties:
         id:
           type: string
@@ -1662,7 +1783,9 @@ components:
           type: array
           items:
             type: string
-          description: Reserved for the IP allow-list (roadmap 7.7). Stored, not enforced yet; empty means any address.
+          description: IP allow-list, canonical CIDR text (a bare address is `/32` or `/128`). Empty means any address.
+        ip_mode:
+          $ref: '#/components/schemas/IpMode'
         status:
           type: string
           enum: [active, expired, revoked]

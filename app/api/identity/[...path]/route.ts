@@ -26,6 +26,8 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^api-credentials$/, methods: ["GET", "POST"] },
   { pattern: /^api-credentials\/[0-9a-f-]{36}\/rotate$/i, methods: ["POST"] },
   { pattern: /^api-credentials\/[0-9a-f-]{36}$/i, methods: ["DELETE"] },
+  { pattern: /^api-credentials\/[0-9a-f-]{36}\/ip-allowlist$/i, methods: ["PUT"] },
+  { pattern: /^api-credentials\/[0-9a-f-]{36}\/ip-events$/i, methods: ["GET"] },
   { pattern: /^users\/[0-9a-f-]{36}\/2fa$/i, methods: ["DELETE"] },
   { pattern: /^auth\/2fa$/, methods: ["GET"] },
   // Onboarding (7.4): the public signup + email steps, and the session ones.
@@ -116,4 +118,5 @@ async function proxy(
 export const GET = proxy;
 export const POST = proxy;
 export const PATCH = proxy;
+export const PUT = proxy;
 export const DELETE = proxy;

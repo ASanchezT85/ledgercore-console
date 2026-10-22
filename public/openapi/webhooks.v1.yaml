@@ -335,7 +335,9 @@ components:
         the request is refused with 503, never accepted unverified. Errors:
         `signature_missing`, `signature_invalid`, `timestamp_skew`,
         `nonce_reused`, `credential_expired`, `credential_revoked`,
-        `environment_mismatch`. Never retry with the same `X-Nonce`.
+        `environment_mismatch`, `ip_not_allowed` (the credential has an IP
+        allow-list in `enforce` mode and the request came from outside it: 403).
+        Never retry with the same `X-Nonce`.
 
     bearerAuth:
       type: http
@@ -441,7 +443,7 @@ components:
                 service_unavailable, internal,
                 signature_missing, signature_invalid, timestamp_skew, nonce_reused,
                 credential_expired, credential_revoked, environment_mismatch,
-                legacy_credential_retired.
+                ip_not_allowed, legacy_credential_retired.
             message:
               type: string
             request_id:

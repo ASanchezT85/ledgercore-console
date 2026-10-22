@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Copy, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { ErrorBanner, LoadingCard } from "@/components/live";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,31 @@ interface ApiCredential {
   name: string;
   api_key: string;
   scopes: string[];
+  /** IP allow-list (IPv4/IPv6 addresses or CIDRs); empty means any address. */
+  allowed_cidrs: string[];
+  ip_mode: "observe" | "enforce";
   status: "active" | "expired" | "revoked";
   created_at: string;
   expires_at: string;
   revoked_at: string | null;
   rotated_to: string | null;
+}
+
+/** An address seen outside a credential's allow-list. */
+interface IpEvent {
+  ip: string;
+  outcome: "observed" | "rejected";
+  hits: number;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+/** One address or CIDR per line (commas and spaces work too). */
+function parseCidrs(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /** Create / rotate answer: the only time the secret is ever returned. */
@@ -176,6 +196,13 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
   const [environment, setEnvironment] = useState<"sandbox" | "live">(info.environment);
   const [scopes, setScopes] = useState<string[]>([]);
   const [days, setDays] = useState(180);
+  const [createIps, setCreateIps] = useState("");
+  const [createIpMode, setCreateIpMode] = useState<"" | "observe" | "enforce">("");
+  // IP allow-list editor
+  const [ipEditing, setIpEditing] = useState<ApiCredential | null>(null);
+  const [ipText, setIpText] = useState("");
+  const [ipMode, setIpMode] = useState<"observe" | "enforce">("observe");
+  const [ipEvents, setIpEvents] = useState<IpEvent[] | null>(null);
   // rotate form
   const [overlapHours, setOverlapHours] = useState(24);
 
@@ -221,6 +248,21 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
     }
   }
 
+  async function openIpEditor(c: ApiCredential) {
+    setNotice(null);
+    setIpEditing(c);
+    setIpText(c.allowed_cidrs.join("\n"));
+    setIpMode(c.ip_mode);
+    setIpEvents(null);
+    try {
+      const res = await identityFetch<{ data: IpEvent[] }>("GET", `api-credentials/${c.id}/ip-events`);
+      setIpEvents(res.data);
+    } catch (err) {
+      if (err instanceof IdentityError) setError(err.message);
+      else await handle(err);
+    }
+  }
+
   function toggleScope(scope: string) {
     setScopes((cur) => (cur.includes(scope) ? cur.filter((s) => s !== scope) : [...cur, scope]));
   }
@@ -241,7 +283,7 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
     return error ? <ErrorBanner message={error} onRetry={() => void load()} /> : <LoadingCard />;
   }
 
-  const formOpen = creating || rotating !== null;
+  const formOpen = creating || rotating !== null || ipEditing !== null;
   const locked = busy || issued !== null; // a pending secret must be acknowledged first
 
   return (
@@ -275,7 +317,14 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
                 const res = await identityFetch<IssuedCredential>(
                   "POST",
                   "api-credentials",
-                  { environment, name: name.trim(), scopes, expires_in_days: days },
+                  {
+                    environment,
+                    name: name.trim(),
+                    scopes,
+                    expires_in_days: days,
+                    allowed_cidrs: parseCidrs(createIps),
+                    ...(createIpMode ? { ip_mode: createIpMode } : {}),
+                  },
                   { csrf: true },
                 );
                 setIssued({ kind: "created", credential: res });
@@ -283,6 +332,8 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
                 setName("");
                 setScopes([]);
                 setDays(180);
+                setCreateIps("");
+                setCreateIpMode("");
               });
             }}
           >
@@ -330,6 +381,33 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
                 Your tenant is a sandbox tenant: it can only create sandbox credentials.
               </p>
             )}
+
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-ink-muted">
+                  Allowed IPs <span className="text-ink-faint">(optional; one address or CIDR per line, IPv4 or IPv6)</span>
+                </span>
+                <textarea
+                  rows={3}
+                  value={createIps}
+                  onChange={(e) => setCreateIps(e.target.value)}
+                  placeholder={"203.0.113.7\n198.51.100.0/24\n2001:db8::/32"}
+                  className="w-full rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-accent/60"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-ink-muted">If outside the list</span>
+                <select
+                  value={createIpMode}
+                  onChange={(e) => setCreateIpMode(e.target.value as "" | "observe" | "enforce")}
+                  className="h-10 rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 text-sm text-ink"
+                >
+                  <option value="">Default (live: block)</option>
+                  <option value="observe">Observe (let through, record)</option>
+                  <option value="enforce">Enforce (block, 403)</option>
+                </select>
+              </label>
+            </div>
 
             <fieldset>
               <legend className="mb-1.5 text-xs font-medium text-ink-muted">
@@ -387,6 +465,118 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
               </Button>
             </div>
           </form>
+        </Card>
+      )}
+
+      {ipEditing && (
+        <Card title={`IP allow-list · ${ipEditing.name}`} subtitle={ipEditing.api_key}>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const target = ipEditing;
+              const list = parseCidrs(ipText);
+              if (
+                ipMode === "enforce" &&
+                list.length > 0 &&
+                !window.confirm(
+                  `Enforce: from now on every request signed with ${target.api_key} from an address outside this list fails with 403 ip_not_allowed. Make sure your servers' outbound IPs are in it. Continue?`,
+                )
+              )
+                return;
+              void run(async () => {
+                const res = await identityFetch<ApiCredential>(
+                  "PUT",
+                  `api-credentials/${target.id}/ip-allowlist`,
+                  { allowed_cidrs: list, ip_mode: list.length === 0 ? "observe" : ipMode },
+                  { csrf: true },
+                );
+                setIpEditing(null);
+                setNotice(
+                  res.allowed_cidrs.length === 0
+                    ? `${target.name} now accepts requests from any address.`
+                    : `${target.name}: ${res.allowed_cidrs.length} allowed ${res.allowed_cidrs.length === 1 ? "entry" : "entries"}, ${res.ip_mode} mode.`,
+                );
+              });
+            }}
+          >
+            <p className="text-xs text-ink-muted">
+              Only requests from these addresses may use this credential. Leave it empty to accept
+              any address. <strong className="text-ink">Observe</strong> lets other addresses through
+              and records them below, so you can check the list before blocking;{" "}
+              <strong className="text-ink">enforce</strong> rejects them with 403{" "}
+              <code className="font-mono">ip_not_allowed</code>. The address is the one the API
+              sees; behind a proxy it is the client address the proxy reports.
+            </p>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-ink-muted">
+                Allowed IPs (one address or CIDR per line; at most 50)
+              </span>
+              <textarea
+                rows={5}
+                value={ipText}
+                onChange={(e) => setIpText(e.target.value)}
+                placeholder={"203.0.113.7\n198.51.100.0/24\n2001:db8::/32"}
+                className="w-full rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 py-2 font-mono text-xs text-ink placeholder:text-ink-faint focus:border-accent/60"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-ink-muted">Mode</span>
+              <select
+                value={ipMode}
+                onChange={(e) => setIpMode(e.target.value as "observe" | "enforce")}
+                className="h-10 rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 text-sm text-ink"
+              >
+                <option value="observe">Observe (let through, record)</option>
+                <option value="enforce">Enforce (block, 403)</option>
+              </select>
+            </label>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy}>
+                <ShieldCheck size={15} aria-hidden="true" />
+                Save allow-list
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setIpEditing(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+
+          <h4 className="mt-5 mb-2 text-xs font-semibold tracking-wider text-ink-faint uppercase">
+            Recent addresses outside the list
+          </h4>
+          {ipEvents === null ? (
+            <p className="text-xs text-ink-muted">Loading…</p>
+          ) : ipEvents.length === 0 ? (
+            <p className="text-xs text-ink-muted">None seen.</p>
+          ) : (
+            <Table>
+              <THead>
+                <TH>Address</TH>
+                <TH>Result</TH>
+                <TH className="text-right">Requests</TH>
+                <TH>First seen</TH>
+                <TH>Last seen</TH>
+              </THead>
+              <TBody>
+                {ipEvents.map((ev) => (
+                  <TR key={`${ev.ip}-${ev.outcome}`}>
+                    <TD>
+                      <code className="font-mono text-xs text-ink">{ev.ip}</code>
+                    </TD>
+                    <TD>
+                      <Badge tone={ev.outcome === "rejected" ? "red" : "amber"} dot>
+                        {ev.outcome === "rejected" ? "rejected" : "let through"}
+                      </Badge>
+                    </TD>
+                    <TD className="text-right text-xs">{ev.hits.toLocaleString()}</TD>
+                    <TD className="text-xs whitespace-nowrap">{formatDateTime(ev.first_seen_at)}</TD>
+                    <TD className="text-xs whitespace-nowrap">{formatDateTime(ev.last_seen_at)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
         </Card>
       )}
 
@@ -480,6 +670,7 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
               <TH>Env</TH>
               <TH>API key</TH>
               <TH>Scopes</TH>
+              <TH>IP list</TH>
               <TH>Status</TH>
               <TH>Created</TH>
               <TH>Expires</TH>
@@ -509,6 +700,18 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
                     </div>
                   </TD>
                   <TD>
+                    {c.allowed_cidrs.length === 0 ? (
+                      <span className="text-xs text-ink-faint">Any address</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        <Badge tone={c.ip_mode === "enforce" ? "emerald" : "amber"} dot>
+                          {c.ip_mode}
+                        </Badge>
+                        {c.allowed_cidrs.length} {c.allowed_cidrs.length === 1 ? "entry" : "entries"}
+                      </span>
+                    )}
+                  </TD>
+                  <TD>
                     <Badge tone={STATUS_TONE[c.status]} dot>
                       {c.status}
                     </Badge>
@@ -525,6 +728,14 @@ export function ApiCredentialsCard({ info }: { info: SessionInfo }) {
                   <TD className="text-right whitespace-nowrap">
                     {c.status === "active" && (
                       <span className="inline-flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={locked || formOpen}
+                          onClick={() => void openIpEditor(c)}
+                          className="inline-flex items-center gap-1 text-xs text-accent hover:underline disabled:opacity-50"
+                        >
+                          <ShieldCheck size={13} aria-hidden="true" /> IPs
+                        </button>
                         {!c.rotated_to && (
                           <button
                             type="button"
