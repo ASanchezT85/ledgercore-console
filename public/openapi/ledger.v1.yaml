@@ -290,6 +290,58 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/adjustment-policy:
+    put:
+      operationId: setLedgerAdjustmentPolicy
+      tags: [Ledgers]
+      summary: Auto-approve reconciliation items in a soft-closed period
+      description: |
+        Turns the ledger's `auto_approve_reconciliation` on or off (off by
+        default). While it is on, an adjustment request that names its
+        reconciliation `origin` (only a key with the
+        `ledger:reconciliation_source` scope may send one) and is dated in the
+        soft-closed period it adjusts is approved by the rule when it is
+        created and executed in the same call: a statement line with a value
+        date in that period is booked with that date, not today's
+        (6.20, ADR-029 addendum). The rule is the approver of record
+        (`system:reconciliation_rule`). Everything else still takes a maker and
+        two checkers, and a hard-closed period takes nothing. Requires
+        `ledger:write`.
+
+        The change waits for the requests being created on the ledger. Each
+        change leaves a `ledger.adjustment_policy.update` audit row; setting
+        the current value is a no-op and audits nothing.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [auto_approve_reconciliation]
+              additionalProperties: false
+              properties:
+                auto_approve_reconciliation:
+                  type: boolean
+            examples:
+              on:
+                value:
+                  auto_approve_reconciliation: true
+      responses:
+        '200':
+          description: The ledger with its new policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/ledgers/{id}/custody-policy:
     put:
       operationId: setLedgerCustodyPolicy
@@ -2449,7 +2501,9 @@ paths:
                       amount: { asset: USD, amount: '5000' }
       responses:
         '201':
-          description: The request, pending.
+          description: |
+            The request, pending; or executed, when the reconciliation rule
+            approved it (`auto_approved`).
           content:
             application/json:
               schema:
@@ -2468,6 +2522,14 @@ paths:
                 $ref: '#/components/schemas/AdjustmentRequest'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `origin` was sent and the token lacks the
+            `ledger:reconciliation_source` scope (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422':
@@ -4980,6 +5042,11 @@ components:
             Whether a transaction in more than one asset, and a transfer between
             ledgers that moves more than one, needs an FX quote (false by
             default; `PUT /v1/ledgers/{id}/fx-policy`).
+        auto_approve_reconciliation:
+          type: boolean
+          description: |
+            Whether the reconciliation rule approves the adjustment requests it
+            covers (false by default; `PUT /v1/ledgers/{id}/adjustment-policy`).
         loss_allocation:
           description: |
             How a provider's loss is shared (`PUT /v1/ledgers/{id}/custody-policy`).
@@ -6097,6 +6164,30 @@ components:
           description: Must balance per asset.
         metadata:
           $ref: '#/components/schemas/Metadata'
+        origin:
+          $ref: '#/components/schemas/AdjustmentOrigin'
+
+    AdjustmentOrigin:
+      type: object
+      required: [source_id, external_ref]
+      additionalProperties: false
+      description: |
+        The reconciliation source line the request books (6.20). Only a key
+        with the `ledger:reconciliation_source` scope may send it (403
+        otherwise). Immutable and outside `request_hash`; one live request per
+        line and ledger (409 on a second). With the ledger's
+        `auto_approve_reconciliation` on and the request dated in the
+        soft-closed period it adjusts, the rule approves and executes it.
+      properties:
+        source_id:
+          type: string
+          format: uuid
+          description: The reconciliation source (`/v1/reconciliation/sources`).
+        external_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: The statement line's reference in that source.
 
     AdjustmentApproval:
       type: object
@@ -6156,6 +6247,13 @@ components:
           type: [string, 'null']
           format: uuid
           description: The transaction written by the execution, once `executed`.
+        origin:
+          oneOf:
+            - $ref: '#/components/schemas/AdjustmentOrigin'
+            - type: 'null'
+        auto_approved:
+          type: boolean
+          description: True when the reconciliation rule approved it (its only approval is `system:reconciliation_rule`).
         created_at:
           type: string
           format: date-time

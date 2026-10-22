@@ -2005,14 +2005,16 @@ components:
           type: array
           description: |
             What tokens minted from the key may do. Omitted or empty = read and
-            write on every service. `ledger:frozen_override` is only granted
-            when listed here.
+            write on every service. `ledger:frozen_override` and
+            `ledger:reconciliation_source` (6.20: may give an adjustment request
+            a reconciliation `origin`) are only granted when listed here.
           items:
             type: string
             enum:
               - ledger:read
               - ledger:write
               - ledger:frozen_override
+              - ledger:reconciliation_source
               - reconciliation:read
               - reconciliation:write
               - webhooks:read
@@ -2064,7 +2066,7 @@ components:
           minItems: 1
           items:
             type: string
-            enum: [ledger:read, ledger:write, ledger:frozen_override, reconciliation:read, reconciliation:write, webhooks:read, webhooks:write]
+            enum: [ledger:read, ledger:write, ledger:frozen_override, ledger:reconciliation_source, reconciliation:read, reconciliation:write, webhooks:read, webhooks:write]
           description: Required; no scope is granted by default and the wildcard is never available.
         expires_in_days:
           type: integer

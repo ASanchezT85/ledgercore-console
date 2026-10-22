@@ -378,6 +378,50 @@
               }
             },
             {
+              "name": "Auto-approve reconciliation items in a soft-closed period",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"auto_approve_reconciliation\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/adjustment-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "adjustment-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Turns the ledger's `auto_approve_reconciliation` on or off (off by\ndefault). While it is on, an adjustment request that names its\nreconciliation `origin` (only a key with the\n`ledger:reconciliation_source` scope may send one) and is dated in the\nsoft-closed period it adjusts is approved by the rule when it is\ncreated and executed in the same call: a statement line with a value\ndate in that period is booked with that date, not today's\n(6.20, ADR-029 addendum). The rule is the approver of record\n(`system:reconciliation_rule`). Everything else still takes a maker and\ntwo checkers, and a hard-closed period takes nothing. Requires\n`ledger:write`.\n\nThe change waits for the requests being created on the ledger. Each\nchange leaves a `ledger.adjustment_policy.update` audit row; setting\nthe current value is a no-op and audits nothing."
+              }
+            },
+            {
               "name": "Choose how a provider's loss is shared",
               "request": {
                 "method": "PUT",
