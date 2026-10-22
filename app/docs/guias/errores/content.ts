@@ -64,6 +64,7 @@ const CATALOG_ES: string[][] = [
   ["approval_required", "422", "Un ajuste (adjusts_period_id) enviado a POST /v1/transactions: los ajustes solo se escriben ejecutando una solicitud aprobada por dos personas distintas de quien la creó.", "Crea una solicitud en POST /v1/adjustment-requests, consigue dos aprobaciones y ejecútala."],
   ["self_approval", "403", "Quien creó la solicitud de ajuste intentó aprobarla.", "La aprueban otras dos identidades (API keys) distintas del autor."],
   ["request_hash_mismatch", "409", "La aprobación nombra un request_hash distinto al de la solicitud.", "Relee la solicitud (GET /v1/adjustment-requests/{id}), revísala y aprueba su request_hash actual."],
+  ["loss_allocation_not_configured", "409", "GET /v1/ledgers/{id}/exposure-matrix en un libro que nunca fijó loss_allocation (PUT /v1/ledgers/{id}/custody-policy). No hay valor por defecto: cómo se reparte la pérdida de un proveedor es una decisión legal del tenant.", "No es transitorio: fija pro_rata_pool o by_provider con PUT /v1/ledgers/{id}/custody-policy (confírmalo con tu asesor legal). GET …/provider-exposure funciona sin ella."],
   ["hold_expired", "409", "El hold llegó a su expires_at: ya no reserva fondos y no se puede capturar ni liberar (también con hold_id en POST /v1/transactions).", "No es transitorio: crea un hold nuevo si todavía necesitas reservar los fondos."],
   ["movement_stage_invalid", "409", "La escritura nombra una etapa (movement.stage) que su movimiento ya pasó: authorize, capture y dispatch solo avanzan.", "No es transitorio: la etapa ya ocurrió. Escribe en la etapa actual o en una posterior; complete y fail se aceptan siempre que el movimiento no haya terminado."],
   ["movement_closed", "409", "La escritura nombra un movimiento que ya terminó (completed, failed o cancelled).", "No es transitorio. Un reintento de una escritura aceptada antes devuelve su respuesta guardada; lo demás va en un movimiento nuevo."],
@@ -74,6 +75,7 @@ const CATALOG_ES: string[][] = [
   ["metadata_pii_detected", "422", "Una clave o un valor parece un email, una tarjeta, un teléfono o un IBAN. El mensaje nunca repite el valor.", "No guardes datos personales en metadata; usa ids opacos con prefijo (cus_42, ord_…)."],
   ["metadata_key_not_allowed", "422", "La clave no está en la lista blanca de metadata del libro.", "Usa una clave permitida o pide ampliar la lista (PUT /v1/ledgers/{id}/metadata-policy)."],
   ["rate_limited", "429", "Se superó un límite de uso (p. ej. cupo diario de signups sandbox).", "Espera y reintenta con backoff; con la misma idempotency key el retry es seguro."],
+  ["not_available_yet", "501", "El libro eligió loss_allocation by_provider, pero su matriz proveedor × titular necesita los movimientos con trazabilidad (ADR-019, paso 2), que aún no existen.", "No es transitorio todavía: la regla ya se puede guardar; la matriz pro_rata_pool sí responde."],
   ["internal", "500", "Error inesperado; el detalle sólo está en los logs del servicio.", "Reintenta con backoff; si persiste, reporta el request_id a soporte."],
   ["service_unavailable", "503", "Dependencia caída (base de datos) o funcionalidad no configurada (admin token ausente).", "Reintenta con backoff."],
 ];
@@ -99,6 +101,7 @@ const CATALOG_EN: string[][] = [
   ["approval_required", "422", "An adjustment (adjusts_period_id) sent to POST /v1/transactions: adjustments are only written by executing a request two people other than its maker approved.", "Create a request with POST /v1/adjustment-requests, get two approvals and execute it."],
   ["self_approval", "403", "The maker of an adjustment request tried to approve it.", "Two other identities (API keys) approve it."],
   ["request_hash_mismatch", "409", "The approval names a request_hash other than the request's.", "Re-read the request (GET /v1/adjustment-requests/{id}), review it and approve its current request_hash."],
+  ["loss_allocation_not_configured", "409", "GET /v1/ledgers/{id}/exposure-matrix on a ledger that never set loss_allocation (PUT /v1/ledgers/{id}/custody-policy). There is no default: how a provider's loss is shared is a legal decision of the tenant.", "Not transient: set pro_rata_pool or by_provider with PUT /v1/ledgers/{id}/custody-policy (confirm it with your counsel). GET …/provider-exposure works without it."],
   ["hold_expired", "409", "The hold reached its expires_at: it no longer reserves funds and can be neither captured nor released (also with hold_id on POST /v1/transactions).", "Not transient: create a new hold if you still need to reserve the funds."],
   ["movement_stage_invalid", "409", "The write names a stage (movement.stage) its movement has already passed: authorize, capture and dispatch only move forward.", "Not transient: the stage already happened. Write at the current stage or a later one; complete and fail are accepted as long as the movement has not ended."],
   ["movement_closed", "409", "The write names a movement that already ended (completed, failed or cancelled).", "Not transient. A retry of a write accepted earlier returns its stored response; anything else goes in a new movement."],
@@ -109,6 +112,7 @@ const CATALOG_EN: string[][] = [
   ["metadata_pii_detected", "422", "A key or value looks like an email, card number, phone number or IBAN. The message never echoes the value.", "Don't store personal data in metadata; use opaque prefixed ids (cus_42, ord_…)."],
   ["metadata_key_not_allowed", "422", "The key is not in the ledger's metadata allowlist.", "Use an allowed key or have the list extended (PUT /v1/ledgers/{id}/metadata-policy)."],
   ["rate_limited", "429", "A usage limit was exceeded (e.g. daily sandbox signup quota).", "Wait and retry with backoff; with the same idempotency key the retry is safe."],
+  ["not_available_yet", "501", "The ledger chose loss_allocation by_provider, but its provider × holder matrix needs the traced movements (ADR-019, step 2), which do not exist yet.", "Not transient yet: the rule can already be saved; the pro_rata_pool matrix does answer."],
   ["internal", "500", "Unexpected error; details live only in the service logs.", "Retry with backoff; if it persists, report the request_id to support."],
   ["service_unavailable", "503", "Dependency down (database) or feature not configured (missing admin token).", "Retry with backoff."],
 ];

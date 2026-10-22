@@ -286,6 +286,229 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/custody-policy:
+    put:
+      operationId: setLedgerCustodyPolicy
+      tags: [Ledgers]
+      summary: Choose how a provider's loss is shared
+      description: |
+        Sets the ledger's `loss_allocation` ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        §6), the rule that says whose money is lost when a provider fails:
+
+        - `pro_rata_pool`: the loss is shared over every holder's balance, pro
+          rata (safeguarded funds are one pool).
+        - `by_provider`: the loss falls on the holders whose money sat at that
+          provider.
+
+        **There is no default.** A ledger that never set it returns
+        `loss_allocation: null`, has only the provider level
+        (`GET /v1/ledgers/{id}/provider-exposure`) and refuses the owner matrix
+        with 409 `loss_allocation_not_configured`: a silent default would pick
+        one side of a legal question for the tenant. Which rule applies to a
+        licence and country must be confirmed with counsel; this is not legal
+        advice. The field is required and cannot be unset.
+
+        The change waits for the writes in flight on the ledger. Each change
+        leaves an `audit_log` row (`ledger.custody_policy.update`) with the
+        previous value (`null` the first time) and the new one; setting the
+        rule the ledger already has is a no-op and audits nothing. Requires
+        the `ledger:write` scope.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustodyPolicy'
+            examples:
+              pool:
+                value:
+                  loss_allocation: pro_rata_pool
+      responses:
+        '200':
+          description: The ledger with its rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/ledgers/{id}/provider-exposure:
+    get:
+      operationId: getLedgerProviderExposure
+      tags: [Ledgers, Reports]
+      summary: What each provider holds, and whether customer funds are backed
+      description: |
+        The provider level of [ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        §2, per provider and asset. It needs no `loss_allocation`, so it always
+        works. An account belongs to a provider when `metadata.provider` names
+        it or its path has a `provider` segment followed by the name
+        (`assets:provider:bank_x:custody`), as in `GET /v1/provider-positions`.
+
+        - `custody`: posted balance (debits - credits) of the provider's
+          `asset` accounts with `fund_class: customer` and `liquidity: liquid`:
+          the customer money physically there. Summed over providers it is
+          `customer_assets` of `GET /v1/ledgers/{id}/coverage`.
+        - `claims`: the same with `liquidity: claim`. Reported apart; it never
+          counts as backing.
+        - `own`: posted balance of the provider's `own` asset accounts: the
+          platform's own money there (receivables included).
+        - `payable`: posted balance (credits - debits) of the provider's
+          `liability` accounts: what the platform owes the provider.
+
+        `breaks` lists where customer funds are not backed, and `backed` is
+        `breaks` being empty:
+
+        - `ledger_shortfall` (per asset): customer assets do not reach customer
+          liabilities, the `shortfall` of `/coverage`.
+        - `negative_custody` (per provider and asset): the provider's customer
+          custody is below zero; a provider cannot hold negative money.
+
+        Per-provider backing has no owner meaning in a pool, so under
+        `pro_rata_pool` these are the whole check. Under `by_provider` the
+        per-holder check (a holder's portion at a provider above its custody)
+        needs the traced movements of ADR-019 and is not built yet. An account
+        that names a provider is the provider's, never a holder's.
+
+        **As of a date.** Like `/coverage`: with `as_of` the sums are rebuilt
+        from the postings with `effective_at <= as_of`, using the `fund_class`
+        and `liquidity` each account had then. `loss_allocation` is today's.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: as_of
+          in: query
+          required: false
+          description: RFC 3339 instant; omit for the report as of now.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: One row per provider and asset, and the backing breaks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderExposure'
+              examples:
+                negativeCustody:
+                  value:
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    loss_allocation: pro_rata_pool
+                    backed: false
+                    breaks:
+                      - { kind: ledger_shortfall, asset: USD, exponent: 2, amount: '700' }
+                      - { kind: negative_custody, provider: bank_x, asset: USD, exponent: 2, amount: '100' }
+                    data:
+                      - { provider: bank_x, asset: USD, exponent: 2, custody: '-100', claims: '0', own: '0', payable: '0' }
+                      - { provider: psp_z, asset: USD, exponent: 2, custody: '300', claims: '0', own: '0', payable: '0' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/ledgers/{id}/exposure-matrix:
+    get:
+      operationId: getLedgerExposureMatrix
+      tags: [Ledgers, Reports]
+      summary: Provider × holder matrix under the ledger's loss rule
+      description: |
+        Whose money sits at which provider ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        §2), computed on read under the ledger's `loss_allocation`, never
+        stored. It replaces N × M calls to read one wallet per provider.
+
+        - `pro_rata_pool`: holder h's exposure to provider P = `balance(h)` ×
+          `custody(P)` / Σ customer custody, per asset. Only providers with
+          positive customer custody weigh (a negative one is a `break` of
+          `provider-exposure`; `claims` never weigh). The shares of a holder add
+          up to its balance exactly (the cents go to the largest remainders).
+        - `by_provider`: accepted as a rule, but its fold over the traced
+          movements of ADR-019 is not built yet: 501 `not_available_yet`.
+        - Not configured: 409 `loss_allocation_not_configured`. There is no
+          default (`PUT /v1/ledgers/{id}/custody-policy`).
+
+        A holder is the `holder` of `metadata`, or the path segment after
+        `holder` (`liabilities:holder:ana:available`); its `balance` adds its
+        `liability` accounts with `fund_class: customer` and a positive
+        balance, `available`, `incoming` and the rest, in one asset. One in the
+        red never lowers it, as in `/coverage`. `holder: ""` gathers customer
+        liabilities that name no holder, so the rows add up to the
+        liabilities of `/coverage` (less accounts that name a provider).
+        `unplaced` is the part of a balance that no provider custody backs: all
+        of it when the asset has no positive customer custody.
+
+        The matrix is not paginated; every holder with a balance is returned.
+        `as_of` works as in `GET /v1/ledgers/{id}/coverage`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: as_of
+          in: query
+          required: false
+          description: RFC 3339 instant; omit for the matrix as of now.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: One row per holder and asset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExposureMatrix'
+              examples:
+                pool:
+                  value:
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    loss_allocation: pro_rata_pool
+                    data:
+                      - holder: ana
+                        asset: USD
+                        exponent: 2
+                        balance: '500'
+                        shares:
+                          - { provider: bank_x, amount: '333' }
+                          - { provider: psp_z, amount: '167' }
+                        unplaced: '0'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The ledger has no `loss_allocation` (`loss_allocation_not_configured`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                notConfigured:
+                  value:
+                    error:
+                      code: loss_allocation_not_configured
+                      message: 'domain: loss_allocation is not configured for this ledger'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '501':
+          description: The ledger's rule is `by_provider` and its matrix is not built yet (`not_available_yet`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                byProvider:
+                  value:
+                    error:
+                      code: not_available_yet
+                      message: 'domain: not available yet: the by_provider matrix needs the traced movements of ADR-019 (step 2)'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+
   /v1/ledgers/{id}/coverage:
     get:
       operationId: getLedgerCoverage
@@ -3775,9 +3998,138 @@ components:
             Whether a transaction in more than one asset, and a transfer between
             ledgers that moves more than one, needs an FX quote (false by
             default; `PUT /v1/ledgers/{id}/fx-policy`).
+        loss_allocation:
+          description: |
+            How a provider's loss is shared (`PUT /v1/ledgers/{id}/custody-policy`).
+            `null` until configured: there is no default.
+          oneOf:
+            - $ref: '#/components/schemas/LossAllocation'
+            - type: 'null'
         created_at:
           type: string
           format: date-time
+
+    CustodyPolicy:
+      type: object
+      required: [loss_allocation]
+      additionalProperties: false
+      properties:
+        loss_allocation:
+          $ref: '#/components/schemas/LossAllocation'
+
+    LossAllocation:
+      type: string
+      enum: [pro_rata_pool, by_provider]
+      description: |
+        How a provider's loss is shared among the holders (ADR-020 §6).
+        `pro_rata_pool`: over every holder's balance. `by_provider`: on the
+        holders whose money sat at the provider.
+
+    ProviderExposure:
+      type: object
+      required: [ledger_id, loss_allocation, backed, breaks, data]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        as_of:
+          type: string
+          format: date-time
+          description: Present when the report was asked with `as_of`.
+        loss_allocation:
+          description: The ledger's rule today; `null` while never configured.
+          oneOf:
+            - $ref: '#/components/schemas/LossAllocation'
+            - type: 'null'
+        backed:
+          type: boolean
+          description: true when `breaks` is empty.
+        breaks:
+          type: array
+          items:
+            type: object
+            required: [kind, asset, exponent, amount]
+            properties:
+              kind:
+                type: string
+                enum: [ledger_shortfall, negative_custody]
+              provider:
+                type: string
+                description: Absent for `ledger_shortfall`.
+              asset:
+                type: string
+              exponent:
+                type: integer
+              amount:
+                type: string
+                description: What is missing, minor units, always positive.
+        data:
+          type: array
+          items:
+            type: object
+            required: [provider, asset, exponent, custody, claims, own, payable]
+            properties:
+              provider:
+                type: string
+              asset:
+                type: string
+              exponent:
+                type: integer
+              custody:
+                type: string
+                description: Customer money physically at the provider (minor units; negative is a break).
+              claims:
+                type: string
+                description: Customer-class claims on the provider. Never backing.
+              own:
+                type: string
+                description: The platform's own money at the provider.
+              payable:
+                type: string
+                description: What the platform owes the provider.
+
+    ExposureMatrix:
+      type: object
+      required: [ledger_id, loss_allocation, data]
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+        as_of:
+          type: string
+          format: date-time
+        loss_allocation:
+          $ref: '#/components/schemas/LossAllocation'
+        data:
+          type: array
+          items:
+            type: object
+            required: [holder, asset, exponent, balance, shares, unplaced]
+            properties:
+              holder:
+                type: string
+                description: '`""` for customer liabilities that name no holder.'
+              asset:
+                type: string
+              exponent:
+                type: integer
+              balance:
+                type: string
+                description: What the platform owes the holder in the asset (minor units).
+              shares:
+                type: array
+                description: The balance spread over the providers; adds up to `balance - unplaced`.
+                items:
+                  type: object
+                  required: [provider, amount]
+                  properties:
+                    provider:
+                      type: string
+                    amount:
+                      type: string
+              unplaced:
+                type: string
+                description: The part no provider custody backs.
 
     FXPolicy:
       type: object
