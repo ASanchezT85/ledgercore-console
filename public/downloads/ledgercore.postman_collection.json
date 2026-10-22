@@ -2153,6 +2153,50 @@
                 },
                 "description": "Frees the reserved funds without moving money. A hold past\n`expires_at` is 409 `hold_expired` (its funds are freed by expiry).\n\nThe optional body carries `movement`, which writes the release as a\nstage of the staged movement the hold belongs to (ADR-019), judged like\na capture's."
               }
+            },
+            {
+              "name": "Extend a hold",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"expires_at\": \"2026-08-07T00:00:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/holds/:id/extend",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "holds",
+                    ":id",
+                    "extend"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Moves `expires_at` of an `active` hold forward, in place (roadmap 6.10).\nThe hold, its amount and its reservation stay as they are, so the call\nneeds no available balance and cannot lose the funds to another\noperation. Audited (`hold.extend`) and published as\n`ledger.hold.extended`.\n\n`expires_at` must be in the future and not before the hold's current\nexpiry (400 otherwise). The current value again is a replay: 200 with\n`X-Idempotent-Replay: true`, nothing written. A hold that is not\n`active` is 409 `conflict`; one already past `expires_at` is expired by\nthe call and answers 409 `hold_expired`: an expiry cannot be undone.\n\nA hold tagged with a movement keeps its tag, and the extension is not a\nstage (the movement's status does not move). A movement's close releases\nits holds, so those can no longer be extended. The custody liquidity\nhold of a provider extends the same way."
+              }
             }
           ]
         },

@@ -1174,6 +1174,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "ledger.hold.captured",
   "ledger.hold.released",
   "ledger.hold.expired",
+  "ledger.hold.extended",
   "ledger.account.updated",
   "recon.discrepancy.detected",
 ] as const;
