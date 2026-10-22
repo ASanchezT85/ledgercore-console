@@ -1156,6 +1156,118 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/providers/{provider}/freeze:
+    post:
+      operationId: freezeProvider
+      tags: [Ledgers, Accounts]
+      summary: Freeze every account of a provider
+      description: |
+        Freezes the custody, receivable and payable accounts of provider `P` in
+        one database transaction, with the locks, modes, audit and events of
+        `POST /v1/accounts/{id}/freeze`: nothing captures, dispatches or settles
+        through `P` once the call returns, and no movement commits between the
+        first account and the last. Requires the `ledger:write` scope.
+
+        An account belongs to `P` when `metadata.provider` is `P` or its path
+        has the segment `provider` followed by `P` (the rule of
+        `GET /v1/provider-positions`; names compare in lower case). Only `asset`
+        and `liability` accounts are frozen: expense accounts of `P` (fees, loss
+        write-downs) stay open for bookkeeping. Parents of those accounts are
+        frozen too, as in the account freeze.
+
+        **Holders' wallets stay active.** Their money is a claim on the
+        operator, not on `P`; they keep spending, paying and receiving. Which
+        holders carry the loss is a separate decision, set by the ledger's
+        loss-allocation rule: under `pro_rata_pool` nothing else moves when a
+        provider is frozen and a loss is shared pro rata when it is recognized.
+
+        `mode` (`all` by default, `debits`, `credits`), `reason` (required, 1 to
+        1024 characters) and `case_ref` (optional, up to 128) are the same as on
+        the account freeze. A provider with no account in the ledger is 404.
+        The response lists every account of `P` after the change.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: provider
+          in: path
+          required: true
+          description: Provider name as in `metadata.provider` or the `provider` path segment (case-insensitive).
+          schema:
+            type: string
+            example: psp_z
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountFreeze'
+            examples:
+              failure:
+                value:
+                  mode: all
+                  reason: PSP Z insolvency proceedings
+                  case_ref: CASE-12
+      responses:
+        '200':
+          description: The provider's accounts after the change (in no particular order).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSubtree'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/ledgers/{id}/providers/{provider}/unfreeze:
+    post:
+      operationId: unfreezeProvider
+      tags: [Ledgers, Accounts]
+      summary: Unfreeze every account of a provider
+      description: |
+        Returns every frozen account of provider `P` in the ledger (same
+        selection as `POST /v1/ledgers/{id}/providers/{provider}/freeze`) to
+        `active`, whatever its mode, in one database transaction. Requires the
+        `ledger:write` scope. Accounts that are active or closed are left as
+        they are, so a retry changes nothing and emits nothing. `reason` is
+        required and `case_ref` optional; they go to the audit log
+        (`account.unfreeze`) and `ledger.account.updated`. A provider with no
+        account in the ledger is 404.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: provider
+          in: path
+          required: true
+          description: Provider name as in `metadata.provider` or the `provider` path segment (case-insensitive).
+          schema:
+            type: string
+            example: psp_z
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUnfreeze'
+            examples:
+              cleared:
+                value:
+                  reason: Provider reinstated
+                  case_ref: CASE-12
+      responses:
+        '200':
+          description: The provider's accounts after the change (in no particular order).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSubtree'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/accounts/{id}/balances:
     get:
       operationId: getAccountBalances
