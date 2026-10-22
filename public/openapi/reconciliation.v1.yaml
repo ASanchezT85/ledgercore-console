@@ -1740,7 +1740,7 @@ components:
         | low | 7 days |
 
         The table is fixed for all tenants. The default severity depends on the
-        kind: `balance_mismatch` and `provider_backing_break` are `critical`; `amount_mismatch`, `duplicate`
+        kind: `balance_mismatch`, `provider_backing_break` and `intercompany_break` are `critical`; `amount_mismatch`, `duplicate`
         and `settlement_mismatch` and `movement_transit_residual` are `high`; the others `medium`.
 
     Discrepancy:
@@ -1759,7 +1759,7 @@ components:
           description: Run that found it; null for custody and settlement exceptions raised outside a run.
         kind:
           type: string
-          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch, provider_backing_break, movement_transit_residual, movement_stale]
+          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch, provider_backing_break, movement_transit_residual, movement_stale, intercompany_break]
           description: |
             `duplicate` flags statement rows repeating a key that a rule allows only once.
             `balance_mismatch` is a custody snapshot whose reported balance differs from the ledger's.
@@ -1781,6 +1781,13 @@ components:
             carries `movement_id`, `ledger_id`, `movement_type`, `reference`, `movement_status`, `opened_at`,
             `stale_after_seconds` and `stale_at`. It resolves itself when the movement closes
             (`ledger.movement.closed`). One exception exists per movement.
+            `intercompany_break` is a transfer between ledgers whose due accounts, reversals included, do not
+            eliminate for an asset (ADR-015, roadmap 6.22), found by the ledger's periodic intercompany check
+            (`ledger.intercompany.checked`). It belongs to the tenant's system source `ledger:intercompany`, has
+            no run, is `critical` by default, and `details` carries `key` (`transfer|asset`), `transfer_id`,
+            `source_ledger_id`, `target_ledger_id`, `asset` and `amount` (the net of both due accounts, debits
+            minus credits). One unresolved exception exists per transfer and asset; it closes by itself when a
+            later check no longer finds the break.
         details:
           type: object
           description: |
@@ -1789,7 +1796,8 @@ components:
             `details.resolved_by` links what resolved it (`{type: match, run_id, match_id}`
             when a later run pairs the missing row, `{type: custody_balance, custody_balance_id}`
             when a later snapshot agrees with the ledger, `{type: backing_check, checked_at}`
-            when the provider backing check no longer finds the break, or the movement
+            when the provider backing check no longer finds the break, `{type: intercompany_check, checked_at}`
+            when the intercompany check no longer finds the transfer's break, or the movement
             event for the two movement kinds) and an audit row records the update by the
             system. `amount_mismatch`, `duplicate` and `settlement_mismatch` are never
             auto-closed.

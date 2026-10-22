@@ -1493,7 +1493,7 @@
                     }
                   ]
                 },
-                "description": "Creates and posts a new compensating transaction with mirrored\npostings, links both, and marks the original as reversed.\nThe compensating transaction is announced with\n`ledger.transaction.posted`, followed by `ledger.transaction.reversed`.\n\nReversing onto a `frozen` account is rejected (`account_inactive`)\nunless the body carries `frozen_override` (a chargeback the PSP already\ndeducted must be recorded even if the customer is frozen); see\n`POST /v1/transactions`. The audit row names the reversal and the\noriginal in `reverses`.\n\n`metadata` is copied onto the reversal and into\n`ledger.transaction.reversed`, checked like a transaction's metadata\n(scalars, no personal data, the ledger's `transaction_keys` allowlist).\nIt is part of the idempotency fingerprint: a retry with other metadata\nunder the same key is a 409. A reversal without `metadata` is\nunchanged.\n\n`movement` writes the reversal as a stage of a staged movement\n(ADR-019); see `POST /v1/transactions`. A reversal does not inherit the\noriginal's movement: when it touches a transit account it must name\none (422 `movement_required`), and it cannot take the movement's\ntransit below zero (422 `movement_transit_overdrawn`). A failure\nbefore the movement ends is reversed with stage `fail` on the same\nmovement.\n\n`amount` reverses only part of a single-asset transaction (a partial\nchargeback). Each side's postings are scaled pro rata to it (largest\nremainder), so a fee leg gives back its share; the reversal keeps\n`reverses`. It needs an `idempotency_key` (the default key names only\nthe original). The original stays `posted` until the reversals in\nforce cover all of it; the one that does sets `reversed_by` and\n`status: reversed`. Asking for more than is left is a 409; a reversal\nitself is only reversed in full (400 `validation_failed`).\n`ledger.transaction.reversed` carries `partial`, `asset` and `amount`\nfor a partial reversal.\n\n`account_overrides` moves a leg of the reversal onto another account\nof the same ledger (original account id -> replacement id), e.g. a\nchargeback charged to another account of the same holder. The ledger\nhas no holder object (ADR-020), so \"same holder\" is the caller's\nclaim; the replacement is checked like any posting (status, freeze,\noverdraft). Both fields are part of the idempotency fingerprint.\n\nReversing a reversal (a dispute won) gives the money back but leaves\nthe original `status: reversed`; `GET /v1/transactions/{id}` returns\nthe effective state in `reversal`."
+                "description": "Creates and posts a new compensating transaction with mirrored\npostings, links both, and marks the original as reversed.\nThe compensating transaction is announced with\n`ledger.transaction.posted`, followed by `ledger.transaction.reversed`.\n\nReversing onto a `frozen` account is rejected (`account_inactive`)\nunless the body carries `frozen_override` (a chargeback the PSP already\ndeducted must be recorded even if the customer is frozen); see\n`POST /v1/transactions`. The audit row names the reversal and the\noriginal in `reverses`.\n\n`metadata` is copied onto the reversal and into\n`ledger.transaction.reversed`, checked like a transaction's metadata\n(scalars, no personal data, the ledger's `transaction_keys` allowlist).\nIt is part of the idempotency fingerprint: a retry with other metadata\nunder the same key is a 409. A reversal without `metadata` is\nunchanged.\n\n`movement` writes the reversal as a stage of a staged movement\n(ADR-019); see `POST /v1/transactions`. A reversal does not inherit the\noriginal's movement: when it touches a transit account it must name\none (422 `movement_required`), and it cannot take the movement's\ntransit below zero (422 `movement_transit_overdrawn`). A failure\nbefore the movement ends is reversed with stage `fail` on the same\nmovement.\n\n`amount` reverses only part of a single-asset transaction (a partial\nchargeback). Each side's postings are scaled pro rata to it (largest\nremainder), so a fee leg gives back its share; the reversal keeps\n`reverses`. It needs an `idempotency_key` (the default key names only\nthe original). The original stays `posted` until the reversals in\nforce cover all of it; the one that does sets `reversed_by` and\n`status: reversed`. Asking for more than is left is a 409; a reversal\nitself is only reversed in full (400 `validation_failed`).\n`ledger.transaction.reversed` carries `partial`, `asset` and `amount`\nfor a partial reversal.\n\n`account_overrides` moves a leg of the reversal onto another account\nof the same ledger (original account id -> replacement id), e.g. a\nchargeback charged to another account of the same holder. The ledger\nhas no holder object (ADR-020), so \"same holder\" is the caller's\nclaim; the replacement is checked like any posting (status, freeze,\noverdraft). Both fields are part of the idempotency fingerprint.\n\nA side of a transfer between ledgers cannot be reversed alone: it is\nrefused with 422 `transfer_unbalanced`; use\n`POST /v1/ledger-transfers/{id}/reverse`.\n\nReversing a reversal (a dispute won) gives the money back but leaves\nthe original `status: reversed`; `GET /v1/transactions/{id}` returns\nthe effective state in `reversal`."
               }
             }
           ]
@@ -2474,6 +2474,50 @@
                   ]
                 },
                 "description": "The transfer with its two transactions. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Reverse both sides of a transfer between ledgers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"paid by mistake\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledger-transfers/:id/reverse",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledger-transfers",
+                    ":id",
+                    "reverse"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Reverses a transfer as a pair, in one call and one database transaction\n(ADR-015, roadmap 6.22): a mirror transaction in each ledger, each\nlinked to its side by `reverses`, announced with\n`ledger.transaction.posted` and `ledger.transaction.reversed` like any\nreversal. Both commit or neither does, so the due accounts keep\neliminating at every step.\n\n**A transfer is only reversed as a pair.** Reversing one side alone\nwith `POST /v1/transactions/{id}/reverse` is refused (422\n`transfer_unbalanced`) and writes nothing: the database checks at\nCOMMIT that the due accounts still eliminate per asset once the\nreversals of the pair are counted.\n\n`amount` reverses part of a single-asset transfer, in the source\nside's asset (the same rules as a partial reversal, 6.12); the target\nside is scaled by the same proportion, rounded down. When the two\nsides do not reverse equal amounts of the due accounts the whole call\nis refused with 422 `transfer_unbalanced`. A partial reversal needs an\n`idempotency_key`; without `amount` the key defaults to\n`reversal-of:<transfer id>`. The sides' reversals are keyed\n`<key>/source` and `<key>/target`: the same key and request replays\nboth (200 + `X-Idempotent-Replay: true`), the same key with another\nrequest is 409. Asking for more than is left is a 409; reversing a\nside already reversed is a 409.\n\n`reason`, `metadata` (checked against each ledger's `transaction_keys`)\nand `frozen_override` apply to both sides. Requires `ledger:write`\n(and `ledger:frozen_override` for the override)."
               }
             }
           ]

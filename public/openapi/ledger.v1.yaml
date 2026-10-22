@@ -2056,6 +2056,10 @@ paths:
         claim; the replacement is checked like any posting (status, freeze,
         overdraft). Both fields are part of the idempotency fingerprint.
 
+        A side of a transfer between ledgers cannot be reversed alone: it is
+        refused with 422 `transfer_unbalanced`; use
+        `POST /v1/ledger-transfers/{id}/reverse`.
+
         Reversing a reversal (a dispute won) gives the money back but leaves
         the original `status: reversed`; `GET /v1/transactions/{id}` returns
         the effective state in `reversal`.
@@ -3620,6 +3624,116 @@ paths:
                 $ref: '#/components/schemas/LedgerTransfer'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/ledger-transfers/{id}/reverse:
+    post:
+      operationId: reverseLedgerTransfer
+      tags: [LedgerTransfers]
+      summary: Reverse both sides of a transfer between ledgers
+      description: |
+        Reverses a transfer as a pair, in one call and one database transaction
+        (ADR-015, roadmap 6.22): a mirror transaction in each ledger, each
+        linked to its side by `reverses`, announced with
+        `ledger.transaction.posted` and `ledger.transaction.reversed` like any
+        reversal. Both commit or neither does, so the due accounts keep
+        eliminating at every step.
+
+        **A transfer is only reversed as a pair.** Reversing one side alone
+        with `POST /v1/transactions/{id}/reverse` is refused (422
+        `transfer_unbalanced`) and writes nothing: the database checks at
+        COMMIT that the due accounts still eliminate per asset once the
+        reversals of the pair are counted.
+
+        `amount` reverses part of a single-asset transfer, in the source
+        side's asset (the same rules as a partial reversal, 6.12); the target
+        side is scaled by the same proportion, rounded down. When the two
+        sides do not reverse equal amounts of the due accounts the whole call
+        is refused with 422 `transfer_unbalanced`. A partial reversal needs an
+        `idempotency_key`; without `amount` the key defaults to
+        `reversal-of:<transfer id>`. The sides' reversals are keyed
+        `<key>/source` and `<key>/target`: the same key and request replays
+        both (200 + `X-Idempotent-Replay: true`), the same key with another
+        request is 409. Asking for more than is left is a 409; reversing a
+        side already reversed is a 409.
+
+        `reason`, `metadata` (checked against each ledger's `transaction_keys`)
+        and `frozen_override` apply to both sides. Requires `ledger:write`
+        (and `ledger:frozen_override` for the override).
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                idempotency_key:
+                  type: string
+                  maxLength: 240
+                reason:
+                  type: string
+                  maxLength: 1024
+                frozen_override:
+                  $ref: '#/components/schemas/FrozenOverride'
+                metadata:
+                  $ref: '#/components/schemas/Metadata'
+                amount:
+                  $ref: '#/components/schemas/Money'
+            examples:
+              full:
+                value:
+                  reason: paid by mistake
+              partial:
+                value:
+                  idempotency_key: ic-1-rev-1
+                  reason: partial refund
+                  amount: { asset: USD, amount: '4000' }
+      responses:
+        '201':
+          description: The pair of reversal transactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransferReversal'
+        '200':
+          description: 'Idempotent replay of an earlier pair reversal (`X-Idempotent-Replay: true`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransferReversal'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `frozen_override` was sent and the token lacks the
+            `ledger:frozen_override` scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            A side is already reversed, or `amount` is more than is left to
+            reverse (`conflict`); or the idempotency key was reused with
+            another request (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            `transfer_unbalanced`: the reversals of the two sides would leave
+            the due accounts without eliminating.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/movements:
     post:
@@ -6811,6 +6925,19 @@ components:
         created_at:
           type: string
           format: date-time
+
+    LedgerTransferReversal:
+      type: object
+      required: [transfer_id, source, target]
+      description: The two reversal transactions of a transfer, one per ledger.
+      properties:
+        transfer_id:
+          type: string
+          format: uuid
+        source:
+          $ref: '#/components/schemas/Transaction'
+        target:
+          $ref: '#/components/schemas/Transaction'
 
     TrialBalance:
       type: object
