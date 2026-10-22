@@ -147,15 +147,34 @@ export { AuthError };
 
 // ---- Core fetch -----------------------------------------------------------
 
-async function apiFetch<T>(path: string): Promise<T> {
+/** An API error answer: the HTTP status and the contract's error code. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    public apiMessage?: string,
+  ) {
+    super(code);
+    this.name = "ApiError";
+  }
+}
+
+async function apiFetch<T>(
+  path: string,
+  init: { method?: string; body?: unknown } = {},
+): Promise<T> {
   const token = await getAccessToken();
+  const method = init.method ?? "GET";
   let res: Response;
   try {
     res = await fetch(`${apiBaseUrl()}${path}`, {
+      method,
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
+        ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
@@ -165,18 +184,26 @@ async function apiFetch<T>(path: string): Promise<T> {
   }
   if (res.status === 401) throw new AuthError("token_rejected");
   if (!res.ok) {
-    let message = `HTTP ${res.status}`;
+    let code = `HTTP ${res.status}`;
+    let apiMessage: string | undefined;
     try {
       const body = (await res.json()) as {
         error?: { code?: string; message?: string };
       };
-      if (body.error?.code) message = body.error.code;
+      if (body.error?.code) code = body.error.code;
+      apiMessage = body.error?.message;
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(message);
+    throw new ApiError(res.status, code, apiMessage);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** A fresh idempotency key for one console action (a retry reuses it). */
+export function newIdempotencyKey(prefix: string): string {
+  return `console:${prefix}:${crypto.randomUUID()}`;
 }
 
 // ---- Fetchers -------------------------------------------------------------
@@ -365,4 +392,182 @@ export async function loadDashboard(): Promise<LiveDashboard> {
     ).length,
     trial,
   };
+}
+
+// ---- Provider exposure (6.3) and provider freeze (6.26) ---------------------
+
+export type LossAllocation = "pro_rata_pool" | "by_provider";
+
+export interface ExposureBreak {
+  kind: "ledger_shortfall" | "negative_custody" | "provider_shortfall";
+  provider?: string;
+  asset: string;
+  exponent: number;
+  amount: string;
+}
+
+export interface ExposureRow {
+  provider: string;
+  asset: string;
+  exponent: number;
+  custody: string;
+  claims: string;
+  own: string;
+  payable: string;
+}
+
+export interface ApiProviderExposure {
+  ledger_id: string;
+  as_of?: string;
+  loss_allocation: LossAllocation | null;
+  backed: boolean;
+  breaks: ExposureBreak[];
+  data: ExposureRow[];
+}
+
+export interface MatrixRow {
+  holder: string;
+  asset: string;
+  exponent: number;
+  balance: string;
+  shares: Array<{ provider: string; amount: string }>;
+  unplaced: string;
+}
+
+export interface ApiExposureMatrix {
+  ledger_id: string;
+  as_of?: string;
+  loss_allocation: LossAllocation;
+  data: MatrixRow[];
+}
+
+export function getProviderExposure(ledgerId: string): Promise<ApiProviderExposure> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/provider-exposure`);
+}
+
+export function getExposureMatrix(ledgerId: string): Promise<ApiExposureMatrix> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/exposure-matrix`);
+}
+
+export type FreezeMode = "all" | "debits" | "credits";
+
+export function freezeProvider(
+  ledgerId: string,
+  provider: string,
+  body: { mode: FreezeMode; reason: string; case_ref?: string },
+): Promise<{ data: ApiAccount[] }> {
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/providers/${encodeURIComponent(provider)}/freeze`,
+    { method: "POST", body },
+  );
+}
+
+export function unfreezeProvider(
+  ledgerId: string,
+  provider: string,
+  body: { reason: string; case_ref?: string },
+): Promise<{ data: ApiAccount[] }> {
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/providers/${encodeURIComponent(provider)}/unfreeze`,
+    { method: "POST", body },
+  );
+}
+
+// ---- Movements (6.36) -------------------------------------------------------
+
+export type MovementStatus =
+  | "open"
+  | "authorized"
+  | "captured"
+  | "dispatched"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface MovementFigures {
+  asset: string;
+  transit: string;
+  revenue: string;
+  cost: string;
+  margin: string;
+}
+
+export interface ApiMovement {
+  id: string;
+  ledger_id: string;
+  type: string;
+  reference?: string;
+  status: MovementStatus;
+  fx_quote_id: string | null;
+  opened_at: string;
+  last_stage_at: string;
+  closed_at: string | null;
+  transit_residual: Money[] | null;
+  metadata: Record<string, string>;
+  stale_at: string | null;
+  parent_movement_id: string | null;
+  figures?: MovementFigures[];
+}
+
+export interface MovementSummaryRow {
+  type: string;
+  asset: string;
+  movements: number;
+  revenue: string;
+  cost: string;
+  margin: string;
+}
+
+export interface MovementFilters {
+  ledger_id?: string;
+  status?: MovementStatus;
+  type?: string;
+  reference?: string;
+  opened_after?: string;
+  opened_before?: string;
+}
+
+/** Query string of the non-empty entries ("" when none). */
+export function queryString(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+export function listMovements(
+  filters: MovementFilters,
+  cursor?: string,
+): Promise<Page<ApiMovement>> {
+  return apiFetch(`/v1/movements${queryString({ ...filters, limit: 50, cursor })}`);
+}
+
+export function summarizeMovements(params: {
+  ledger_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<{ data: MovementSummaryRow[] }> {
+  return apiFetch(`/v1/movements/summary${queryString(params)}`);
+}
+
+export function openMovement(body: {
+  ledger_id: string;
+  idempotency_key: string;
+  type: string;
+  reference?: string;
+  parent_movement_id?: string;
+}): Promise<ApiMovement> {
+  return apiFetch("/v1/movements", { method: "POST", body });
+}
+
+export function closeMovement(
+  id: string,
+  outcome: "completed" | "failed" | "cancelled",
+): Promise<ApiMovement> {
+  return apiFetch(`/v1/movements/${encodeURIComponent(id)}/close`, {
+    method: "POST",
+    body: { outcome },
+  });
 }

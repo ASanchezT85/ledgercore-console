@@ -11,7 +11,9 @@ import {
   BookOpenText,
   Code2,
   LayoutDashboard,
+  Landmark,
   LogOut,
+  Route,
   Scale,
   Users,
 } from "lucide-react";
@@ -28,6 +30,8 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/ledgers", label: "Ledgers", icon: BookOpenText },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { href: "/movements", label: "Movements", icon: Route },
+  { href: "/providers", label: "Providers", icon: Landmark },
   { href: "/reconciliation", label: "Reconciliation", icon: Scale },
   { href: "/developers", label: "Developers", icon: Code2 },
   { href: "/users", label: "Users", icon: Users },
