@@ -1242,11 +1242,32 @@ paths:
         holders carry the loss is a separate decision, set by the ledger's
         loss-allocation rule: under `pro_rata_pool` nothing else moves when a
         provider is frozen and a loss is shared pro rata when it is recognized.
+        With no rule set, nothing else moves either.
+
+        **Under `by_provider`** the same transaction also moves each named
+        holder's traced portion at `P` (its `P` share in
+        `GET /v1/ledgers/{id}/exposure-matrix`) out of its wallet into
+        `liabilities:holder:<h>:provider_claim:<P>`, a customer liability
+        created when missing and frozen (`all`, same `reason` and `case_ref`):
+        what the holder had at `P` can no longer be spent, and the rest of the
+        wallet stays active. The wallet legs come from the holder's postable
+        customer liabilities, `…:available` first, each up to what it has free
+        of holds (held money stays). It is one posted transaction with
+        reference `provider_claim:<P>`, booked with `frozen_override` and the
+        freeze `reason` (a holder frozen on its own is moved too, and audited
+        as `transaction.frozen_override`). The call takes the ledger lock
+        exclusively, so it waits for the writes in flight and no write commits
+        between the fold and the move. Freezing again moves only what is still
+        traced to `P` in a wallet (nothing, after the first time); unfreezing
+        leaves the claims frozen. A claim path that would turn an account with
+        activity into a parent is 422 `parent_has_activity` and nothing is
+        frozen.
 
         `mode` (`all` by default, `debits`, `credits`), `reason` (required, 1 to
         1024 characters) and `case_ref` (optional, up to 128) are the same as on
         the account freeze. A provider with no account in the ledger is 404.
-        The response lists every account of `P` after the change.
+        The response lists every account of `P` after the change, followed by
+        the claim accounts frozen by the call.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
