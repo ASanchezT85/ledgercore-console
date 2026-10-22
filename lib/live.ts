@@ -673,11 +673,51 @@ export interface ProviderPosition {
   }>;
 }
 
-export function listProviderPositions(): Promise<{
+/** With `ledgerId` that ledger only; without it, consolidated over the tenant (6.23). */
+export function listProviderPositions(ledgerId?: string): Promise<{
   data: ProviderPosition[];
   hint?: string;
 }> {
-  return apiFetch("/v1/provider-positions");
+  return apiFetch(`/v1/provider-positions${queryString({ ledger_id: ledgerId })}`);
+}
+
+// ---- FX position (6.16) ---------------------------------------------------------
+
+export interface FxPositionValue {
+  conversion_net: string;
+  customer_assets: string;
+  customer_liabilities: string;
+  quote_id?: string;
+}
+
+export interface ApiFxPosition {
+  ledger_id: string;
+  reporting_asset?: string;
+  data: Array<{
+    asset: string;
+    exponent: number;
+    conversion_net: string;
+    customer_assets: string;
+    customer_liabilities: string;
+    value?: FxPositionValue;
+  }>;
+  total?: FxPositionValue;
+  unvalued?: string[];
+}
+
+/** `quoteIds` are the FX quotes to value with; they need `reportingAsset`. */
+export function getFxPosition(
+  ledgerId: string,
+  reportingAsset?: string,
+  quoteIds: string[] = [],
+): Promise<ApiFxPosition> {
+  const qs = [
+    reportingAsset ? `reporting_asset=${encodeURIComponent(reportingAsset)}` : "",
+    ...quoteIds.map((q) => `quote_id=${encodeURIComponent(q)}`),
+  ].filter(Boolean);
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/fx-position${qs.length ? `?${qs.join("&")}` : ""}`,
+  );
 }
 
 // ---- Writes: ledgers, accounts, transactions, holds ---------------------------

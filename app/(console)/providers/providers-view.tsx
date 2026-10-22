@@ -6,7 +6,9 @@
 /**
  * Provider exposure (6.3) and provider freeze (6.26) of one ledger: what each
  * provider holds, whether customer money is backed, whose money sits at which
- * provider, and the freeze / unfreeze of every account of a provider.
+ * provider, and the freeze / unfreeze of every account of a provider. Provider
+ * positions are per ledger or consolidated over the tenant (6.23), and the FX
+ * position can be valued in a reporting asset with quotes the user names (6.16).
  */
 
 import { useState } from "react";
@@ -26,10 +28,12 @@ import {
   ApiError,
   freezeProvider,
   getExposureMatrix,
+  getFxPosition,
   getProviderExposure,
   listProviderPositions,
   unfreezeProvider,
   type ApiExposureMatrix,
+  type ApiFxPosition,
   type ApiProviderExposure,
   type ExposureBreak,
   type FreezeMode,
@@ -328,12 +332,41 @@ const DIRECTION_TEXT = {
   flat: "flat",
 } as const;
 
-function PositionsCard() {
-  const state = useLiveData(listProviderPositions);
+function PositionsCard({ ledgerId }: { ledgerId: string }) {
+  const [consolidated, setConsolidated] = useState(false);
+  return (
+    <PositionsTable
+      key={consolidated ? "all" : ledgerId}
+      ledgerId={consolidated ? undefined : ledgerId}
+      consolidated={consolidated}
+      onToggle={() => setConsolidated((c) => !c)}
+    />
+  );
+}
+
+function PositionsTable({
+  ledgerId,
+  consolidated,
+  onToggle,
+}: {
+  ledgerId?: string;
+  consolidated: boolean;
+  onToggle: () => void;
+}) {
+  const state = useLiveData(() => listProviderPositions(ledgerId));
   return (
     <Card
       title="Provider positions"
-      subtitle="Net position against each counterparty across the tenant, from running balances"
+      subtitle={
+        consolidated
+          ? "Net position against each counterparty across every ledger of the tenant (a provider in two ledgers is one row per asset)"
+          : "Net position against each counterparty in this ledger, from running balances"
+      }
+      actions={
+        <Button size="sm" variant="outline" onClick={onToggle}>
+          {consolidated ? "This ledger" : "All ledgers"}
+        </Button>
+      }
       flush
     >
       {state.status === "loading" && (
@@ -376,6 +409,134 @@ function PositionsCard() {
   );
 }
 
+function FxPositionCard({ ledgerId }: { ledgerId: string }) {
+  const [reporting, setReporting] = useState("");
+  const [quotes, setQuotes] = useState("");
+  const [applied, setApplied] = useState({ reporting: "", quotes: "" });
+  const state = useLiveData<ApiFxPosition>(() =>
+    getFxPosition(
+      ledgerId,
+      applied.reporting || undefined,
+      applied.quotes.split(/[\s,]+/).filter(Boolean),
+    ),
+  );
+  return (
+    <Card
+      title="FX position"
+      subtitle="Open position of the conversion accounts next to customer funds. Optionally valued in a reporting asset with FX quotes you name; nothing is booked."
+      flush
+    >
+      <form
+        className="grid gap-3 border-b border-edge px-5 py-3 sm:grid-cols-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setApplied({ reporting: reporting.trim().toUpperCase(), quotes });
+        }}
+      >
+        <label className="space-y-1 text-xs text-ink-faint">
+          Reporting asset
+          <input
+            className={inputClass}
+            value={reporting}
+            placeholder="USD"
+            maxLength={16}
+            onChange={(e) => setReporting(e.target.value)}
+          />
+        </label>
+        <label className="space-y-1 text-xs text-ink-faint sm:col-span-2">
+          FX quote ids (comma or space separated)
+          <input
+            className={inputClass}
+            value={quotes}
+            onChange={(e) => setQuotes(e.target.value)}
+          />
+        </label>
+        <div className="flex items-end">
+          <Button size="sm" type="submit">
+            Value
+          </Button>
+        </div>
+      </form>
+      {state.status === "loading" && (
+        <p className="px-5 py-6 text-sm text-ink-faint">Loading…</p>
+      )}
+      {state.status === "down" && <ApiDownBanner onRetry={state.reload} />}
+      {state.status === "error" && (
+        <ErrorBanner message={state.message} onRetry={state.reload} />
+      )}
+      {state.status === "live" && (
+        <FxPositionTable data={state.data} />
+      )}
+    </Card>
+  );
+}
+
+function FxPositionTable({ data }: { data: ApiFxPosition }) {
+  const valued = !!data.reporting_asset;
+  const ra = data.reporting_asset ?? "";
+  const rexp = data.data.find((r) => r.asset === ra)?.exponent ?? 2;
+  return (
+    <>
+      <Table>
+        <THead>
+          <TH>Asset</TH>
+          <TH className="text-right">Conversion net</TH>
+          <TH className="text-right">Customer assets</TH>
+          <TH className="text-right">Customer liabilities</TH>
+          {valued && <TH className="text-right">Conversion net ({ra})</TH>}
+          {valued && <TH className="text-right">Customer assets ({ra})</TH>}
+        </THead>
+        <TBody>
+          {data.data.length === 0 && (
+            <TR>
+              <TD colSpan={valued ? 6 : 4} className="py-8 text-center text-ink-faint">
+                No balances in this ledger.
+              </TD>
+            </TR>
+          )}
+          {data.data.map((r) => (
+            <TR key={r.asset}>
+              <TD>{r.asset}</TD>
+              <TD className="num text-right">{money(r.conversion_net, r.asset, r.exponent)}</TD>
+              <TD className="num text-right">{money(r.customer_assets, r.asset, r.exponent)}</TD>
+              <TD className="num text-right">
+                {money(r.customer_liabilities, r.asset, r.exponent)}
+              </TD>
+              {valued && (
+                <TD className="num text-right">
+                  {r.value ? money(r.value.conversion_net, ra, rexp) : "no quote"}
+                </TD>
+              )}
+              {valued && (
+                <TD className="num text-right">
+                  {r.value ? money(r.value.customer_assets, ra, rexp) : "no quote"}
+                </TD>
+              )}
+            </TR>
+          ))}
+          {valued && data.total && (
+            <TR>
+              <TD className="font-medium text-ink">Total in {ra}</TD>
+              <TD colSpan={3} />
+              <TD className="num text-right font-medium text-ink">
+                {money(data.total.conversion_net, ra, rexp)}
+              </TD>
+              <TD className="num text-right font-medium text-ink">
+                {money(data.total.customer_assets, ra, rexp)}
+              </TD>
+            </TR>
+          )}
+        </TBody>
+      </Table>
+      {valued && (data.unvalued?.length ?? 0) > 0 && (
+        <p className="border-t border-edge px-5 py-3 text-xs text-danger">
+          Left out of the total, no quote reaches {ra}: {data.unvalued?.join(", ")}.
+        </p>
+      )}
+    </>
+  );
+}
+
 function LedgerProviders({ ledgerId }: { ledgerId: string }) {
   const state = useLiveData(() => getProviderExposure(ledgerId));
   const [action, setAction] = useState<Action | null>(null);
@@ -413,6 +574,7 @@ function LedgerProviders({ ledgerId }: { ledgerId: string }) {
         />
       )}
       <MatrixCard key={matrixKey} ledgerId={ledgerId} />
+      <FxPositionCard ledgerId={ledgerId} />
     </>
   );
 }
@@ -421,13 +583,13 @@ export function ProvidersView() {
   return (
     <LedgerScope
       title="Providers"
-      subtitle="Provider exposure, customer-fund backing and provider freeze per ledger"
+      subtitle="Provider exposure, positions, FX position, customer-fund backing and provider freeze per ledger"
       demoNote="Sign in to see provider exposure for your ledgers."
     >
       {(ledger) => (
         <>
           <LedgerProviders ledgerId={ledger.id} />
-          <PositionsCard />
+          <PositionsCard ledgerId={ledger.id} />
         </>
       )}
     </LedgerScope>
