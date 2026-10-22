@@ -656,7 +656,12 @@ paths:
           below zero is accepted: it can be refilled but not taken lower.
         - Only a postable account can be changed. A parent (`postable:
           false`) receives no movements, so its status and policy would govern
-          nothing: 422 `account_not_postable` — change its children instead.
+          nothing: 422 `account_not_postable` — change its children instead,
+          or freeze the whole subtree at once with
+          `POST /v1/accounts/{id}/freeze`.
+        - A `frozen` status set here is a freeze of mode `all` with no reason;
+          to freeze only the debits or the credits, or to record a reason and a
+          case reference, use `POST /v1/accounts/{id}/freeze`.
 
         The change waits for the transactions and holds already in flight on
         the account and blocks new ones until it commits, so a freeze or close
@@ -750,6 +755,181 @@ paths:
                       code: account_not_postable
                       message: 'domain: account has child accounts and cannot receive postings: account 5d4c3b2a-1f0e-7d6c-8b5a-493827161504 (customer:cust_42) has child accounts; change them instead'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+
+  /v1/accounts/{id}/freeze:
+    post:
+      operationId: freezeAccount
+      tags: [Accounts]
+      summary: Freeze an account and everything under it
+      description: |
+        Freezes the account **and every account under its path** in one database
+        transaction, so no movement commits between the first leaf and the last
+        and none commits on any leaf once the call returns. It works on a parent
+        (`postable: false`), which `PATCH /v1/accounts/{id}` refuses: call it on
+        a holder's parent account to freeze the holder's whole subtree (ADR-020).
+        Requires the `ledger:write` scope.
+
+        `mode` says which postings a frozen account still refuses, read against
+        the **direction of each posting**: `all` (the default) refuses every
+        posting; `debits` refuses DEBIT postings and accepts CREDIT ones (on a
+        wallet: the money going out is blocked, a deposit still lands);
+        `credits` is the opposite. Holds reserve money a later debit spends on a
+        credit-normal account, so they follow `debits` there. A refused posting
+        fails with 422 `account_inactive`. `frozen_override` still relaxes a
+        freeze of any mode.
+
+        `reason` is required (1 to 1024 characters) and `case_ref` is optional
+        (up to 128 characters, e.g. a compliance case number). Both are stored
+        on every account that changes, written to the audit log
+        (`account.freeze`, one row per account that changed) and sent in
+        `ledger.account.updated`.
+
+        Closed accounts are skipped. An account already frozen with the same
+        mode, reason and case reference is left as it is, so a retry changes
+        nothing and emits nothing; with another mode or reason, it replaces
+        them. The response lists every account of the subtree after the change.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountFreeze'
+            examples:
+              holder:
+                summary: Block the money going out of a holder, keep deposits
+                value:
+                  mode: debits
+                  reason: Court order 2026-1187
+                  case_ref: CASE-7
+              everything:
+                value:
+                  reason: Suspected account takeover
+      responses:
+        '200':
+          description: The subtree after the freeze (in no particular order).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSubtree'
+              examples:
+                holder:
+                  value:
+                    data:
+                      - id: 5d4c3b2a-1f0e-7d6c-8b5a-493827161504
+                        ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                        name: customer:cust_42
+                        type: liability
+                        normal_balance: CREDIT
+                        status: frozen
+                        allow_negative: false
+                        fund_class: customer
+                        liquidity: liquid
+                        transit: false
+                        postable: false
+                        metadata: {}
+                        created_at: '2026-07-24T12:00:00Z'
+                        freeze_mode: debits
+                        freeze_reason: Court order 2026-1187
+                        freeze_case_ref: CASE-7
+                      - id: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                        ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                        name: customer:cust_42:wallet
+                        type: liability
+                        normal_balance: CREDIT
+                        status: frozen
+                        allow_negative: false
+                        fund_class: customer
+                        liquidity: liquid
+                        transit: false
+                        postable: true
+                        metadata: {}
+                        created_at: '2026-07-24T12:01:00Z'
+                        freeze_mode: debits
+                        freeze_reason: Court order 2026-1187
+                        freeze_case_ref: CASE-7
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/accounts/{id}/unfreeze:
+    post:
+      operationId: unfreezeAccount
+      tags: [Accounts]
+      summary: Unfreeze an account and everything under it
+      description: |
+        Returns every frozen account of the subtree (the account and everything
+        under its path) to `active`, whatever its mode, in one database
+        transaction. Requires the `ledger:write` scope. Accounts that are active
+        or closed are left as they are, so a retry changes nothing and emits
+        nothing.
+
+        `reason` is required (1 to 1024 characters) and `case_ref` is optional
+        (up to 128 characters). They are written to the audit log
+        (`account.unfreeze`, one row per account that changed) and sent in
+        `ledger.account.updated`; the accounts themselves keep no freeze state
+        once active. The response lists every account of the subtree after the
+        change.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountUnfreeze'
+            examples:
+              cleared:
+                value:
+                  reason: Cleared by compliance
+                  case_ref: CASE-7
+      responses:
+        '200':
+          description: The subtree after the unfreeze (in no particular order).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSubtree'
+              examples:
+                holder:
+                  value:
+                    data:
+                      - id: 5d4c3b2a-1f0e-7d6c-8b5a-493827161504
+                        ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                        name: customer:cust_42
+                        type: liability
+                        normal_balance: CREDIT
+                        status: active
+                        allow_negative: false
+                        fund_class: customer
+                        liquidity: liquid
+                        transit: false
+                        postable: false
+                        metadata: {}
+                        created_at: '2026-07-24T12:00:00Z'
+                      - id: 2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e
+                        ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                        name: customer:cust_42:wallet
+                        type: liability
+                        normal_balance: CREDIT
+                        status: active
+                        allow_negative: false
+                        fund_class: customer
+                        liquidity: liquid
+                        transit: false
+                        postable: true
+                        metadata: {}
+                        created_at: '2026-07-24T12:01:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /v1/accounts/{id}/balances:
     get:
@@ -3441,7 +3621,10 @@ components:
         posted from draft or reversed) or a hold that touches a `frozen` or
         `closed` account fails with 422 `account_inactive`. Changed with
         `PATCH /v1/accounts/{id}`: `active` and `frozen` move freely into each
-        other; `closed` is final and requires an empty account.
+        other; `closed` is final and requires an empty account. A `frozen`
+        account may refuse only some postings (`freeze_mode`: `debits` refuses
+        DEBIT postings and accepts CREDIT ones, `credits` the opposite; `all`
+        refuses everything); see `POST /v1/accounts/{id}/freeze`.
 
     HoldStatus:
       type: string
@@ -3712,6 +3895,56 @@ components:
         metadata:
           $ref: '#/components/schemas/Metadata'
 
+    FreezeMode:
+      type: string
+      enum: [all, debits, credits]
+      description: |
+        Which postings a frozen account refuses, read against the direction of
+        each posting: `all` refuses every posting, `debits` refuses DEBIT
+        postings and accepts CREDIT ones, `credits` the opposite.
+
+    AccountFreeze:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        mode:
+          $ref: '#/components/schemas/FreezeMode'
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Why the subtree is frozen (400 when missing or blank).
+        case_ref:
+          type: string
+          maxLength: 128
+          description: Optional case or ticket number of the compliance case.
+
+    AccountUnfreeze:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Why the subtree is unfrozen (400 when missing or blank).
+        case_ref:
+          type: string
+          maxLength: 128
+          description: Optional case or ticket number of the compliance case.
+
+    AccountSubtree:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: Every account of the subtree after the change, in no particular order.
+          items:
+            $ref: '#/components/schemas/Account'
+
     AccountUpdate:
       type: object
       minProperties: 1
@@ -3753,6 +3986,14 @@ components:
           $ref: '#/components/schemas/FundClass'
         liquidity:
           $ref: '#/components/schemas/Liquidity'
+        freeze_mode:
+          $ref: '#/components/schemas/FreezeMode'
+        freeze_reason:
+          type: string
+          description: Why the account is frozen. Present only while it is frozen, and absent after a bare `PATCH`.
+        freeze_case_ref:
+          type: string
+          description: Case or ticket number given when it was frozen, if any. Present only while it is frozen.
         transit:
           type: boolean
           description: Whether this is a transit account; see `AccountCreate.transit`.
