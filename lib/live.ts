@@ -179,7 +179,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(
+export async function apiFetch<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
 ): Promise<T> {
@@ -192,9 +192,17 @@ async function apiFetch<T>(
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
-        ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        // multipart bodies get their boundary from the browser
+        ...(init.body !== undefined && !(init.body instanceof FormData)
+          ? { "Content-Type": "application/json" }
+          : {}),
       },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      body:
+        init.body === undefined
+          ? undefined
+          : init.body instanceof FormData
+            ? init.body
+            : JSON.stringify(init.body),
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });

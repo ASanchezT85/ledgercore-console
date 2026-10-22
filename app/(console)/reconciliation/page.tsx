@@ -7,6 +7,7 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { getReconciliation } from "@/lib/api";
+import { ReconSwitch } from "./recon-switch";
 import {
   formatDateTime,
   formatInt,
@@ -55,7 +56,7 @@ const STATUS_LABEL: Record<DiscrepancyStatus, string> = {
   resolved: "resolved",
 };
 
-export default async function ReconciliationPage() {
+async function DemoReconciliation() {
   const { data, demo } = await getReconciliation();
   const { runs, discrepancies } = data;
 
@@ -185,5 +186,13 @@ export default async function ReconciliationPage() {
         </Table>
       </Card>
     </div>
+  );
+}
+
+export default function ReconciliationPage() {
+  return (
+    <ReconSwitch>
+      <DemoReconciliation />
+    </ReconSwitch>
   );
 }
