@@ -32,6 +32,13 @@ export interface ApiLedger {
   name: string;
   description?: string;
   environment: "sandbox" | "live";
+  metadata_policy?: {
+    transaction_keys?: string[] | null;
+    account_keys?: string[] | null;
+  };
+  require_fx_quote?: boolean;
+  loss_allocation?: "pro_rata_pool" | "by_provider" | null;
+  stale_movement_after?: string | null;
   created_at: string;
 }
 
@@ -42,6 +49,11 @@ export interface ApiAccount {
   type: AccountType;
   normal_balance: Direction;
   status: "active" | "frozen" | "closed";
+  allow_negative?: boolean;
+  fund_class?: "customer" | "own";
+  liquidity?: "liquid" | "claim";
+  transit?: boolean;
+  postable?: boolean;
   created_at: string;
 }
 
@@ -207,6 +219,13 @@ async function apiFetch<T>(
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** The contract's error code (and message) of a failed call, for display. */
+export function apiErrorText(err: unknown): string {
+  if (err instanceof ApiError)
+    return `${err.code}${err.apiMessage ? ` — ${err.apiMessage}` : ""}`;
+  return err instanceof Error ? err.message : "unknown_error";
 }
 
 /** A fresh idempotency key for one console action (a retry reuses it). */
@@ -634,4 +653,220 @@ export function listProviderPositions(): Promise<{
   hint?: string;
 }> {
   return apiFetch("/v1/provider-positions");
+}
+
+// ---- Writes: ledgers, accounts, transactions, holds ---------------------------
+
+export function createLedger(body: {
+  name: string;
+  description?: string;
+}): Promise<ApiLedger> {
+  return apiFetch("/v1/ledgers", { method: "POST", body });
+}
+
+export function createAccount(body: {
+  ledger_id: string;
+  name: string;
+  type: AccountType;
+  normal_balance: Direction;
+  allow_negative?: boolean;
+  fund_class?: "customer" | "own";
+  liquidity?: "liquid" | "claim";
+  transit?: boolean;
+  metadata?: Record<string, string>;
+}): Promise<ApiAccount> {
+  return apiFetch("/v1/accounts", { method: "POST", body });
+}
+
+export function freezeAccount(
+  id: string,
+  body: { mode: FreezeMode; reason: string; case_ref?: string },
+): Promise<{ data: ApiAccount[] }> {
+  return apiFetch(`/v1/accounts/${encodeURIComponent(id)}/freeze`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function unfreezeAccount(
+  id: string,
+  body: { reason: string; case_ref?: string },
+): Promise<{ data: ApiAccount[] }> {
+  return apiFetch(`/v1/accounts/${encodeURIComponent(id)}/unfreeze`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function createTransaction(body: {
+  ledger_id: string;
+  idempotency_key: string;
+  reference?: string;
+  description?: string;
+  status: "draft" | "posted";
+  postings: ApiPosting[];
+  metadata?: Record<string, string>;
+}): Promise<ApiTransaction> {
+  return apiFetch("/v1/transactions", { method: "POST", body });
+}
+
+export function postTransaction(id: string): Promise<ApiTransaction> {
+  return apiFetch(`/v1/transactions/${encodeURIComponent(id)}/post`, {
+    method: "POST",
+  });
+}
+
+export function discardTransaction(id: string): Promise<ApiTransaction> {
+  return apiFetch(`/v1/transactions/${encodeURIComponent(id)}/discard`, {
+    method: "POST",
+  });
+}
+
+export type HoldStatus = "active" | "captured" | "released" | "expired";
+
+export interface ApiHold {
+  id: string;
+  ledger_id: string;
+  account_id: string;
+  idempotency_key: string;
+  amount: Money;
+  status: HoldStatus;
+  transaction_id: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export function createHold(body: {
+  account_id: string;
+  idempotency_key: string;
+  amount: Money;
+  expires_at?: string;
+}): Promise<ApiHold> {
+  return apiFetch("/v1/holds", { method: "POST", body });
+}
+
+export function createProviderHold(
+  ledgerId: string,
+  provider: string,
+  body: { idempotency_key: string; amount: Money; expires_at?: string },
+): Promise<ApiHold> {
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/providers/${encodeURIComponent(provider)}/holds`,
+    { method: "POST", body },
+  );
+}
+
+export function getHold(id: string): Promise<ApiHold> {
+  return apiFetch(`/v1/holds/${encodeURIComponent(id)}`);
+}
+
+export function captureHold(
+  id: string,
+  body: { amount?: Money; transaction_id?: string } = {},
+): Promise<ApiHold> {
+  return apiFetch(`/v1/holds/${encodeURIComponent(id)}/capture`, {
+    method: "POST",
+    body,
+  });
+}
+
+export function releaseHold(id: string): Promise<ApiHold> {
+  return apiFetch(`/v1/holds/${encodeURIComponent(id)}/release`, {
+    method: "POST",
+  });
+}
+
+// ---- Ledger policies and coverage ---------------------------------------------
+
+export function setCustodyPolicy(
+  ledgerId: string,
+  loss_allocation: LossAllocation,
+): Promise<ApiLedger> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/custody-policy`, {
+    method: "PUT",
+    body: { loss_allocation },
+  });
+}
+
+export function setFxPolicy(
+  ledgerId: string,
+  require_fx_quote: boolean,
+): Promise<ApiLedger> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/fx-policy`, {
+    method: "PUT",
+    body: { require_fx_quote },
+  });
+}
+
+/** A Go duration ("720h") or null to turn the stale check off. */
+export function setMovementPolicy(
+  ledgerId: string,
+  stale_movement_after: string | null,
+): Promise<ApiLedger> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/movement-policy`, {
+    method: "PUT",
+    body: { stale_movement_after },
+  });
+}
+
+export function setMetadataPolicy(
+  ledgerId: string,
+  body: { transaction_keys: string[] | null; account_keys: string[] | null },
+): Promise<ApiLedger> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/metadata-policy`, {
+    method: "PUT",
+    body,
+  });
+}
+
+export interface CoverageRow {
+  asset: string;
+  exponent: number;
+  customer_assets: string;
+  customer_claims: string;
+  customer_liabilities: string;
+  customer_receivables: string;
+  negative_accounts: number;
+  covered: boolean;
+  shortfall: string;
+}
+
+export interface ApiCoverage {
+  ledger_id: string;
+  as_of?: string;
+  covered: boolean;
+  data: CoverageRow[];
+}
+
+export interface ApiCoverageSnapshot {
+  id: string;
+  ledger_id: string;
+  as_of: string;
+  taken_at: string;
+  taken_by: string;
+  snapshot_hash: string;
+  covered: boolean;
+  data: CoverageRow[];
+}
+
+export function getCoverage(ledgerId: string): Promise<ApiCoverage> {
+  return apiFetch(`/v1/ledgers/${encodeURIComponent(ledgerId)}/coverage`);
+}
+
+export function createCoverageSnapshot(
+  ledgerId: string,
+  as_of: string,
+): Promise<ApiCoverageSnapshot> {
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/coverage-snapshots`,
+    { method: "POST", body: { as_of } },
+  );
+}
+
+export function listCoverageSnapshots(
+  ledgerId: string,
+): Promise<Page<ApiCoverageSnapshot>> {
+  return apiFetch(
+    `/v1/ledgers/${encodeURIComponent(ledgerId)}/coverage-snapshots?limit=20`,
+  );
 }

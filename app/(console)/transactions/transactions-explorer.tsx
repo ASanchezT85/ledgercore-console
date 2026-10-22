@@ -13,6 +13,7 @@ import {
   formatDateTime,
   formatMoneyWithAsset,
 } from "@/lib/format";
+import { DraftActions } from "@/components/draft-actions";
 import { ReversePanel } from "@/components/reverse-panel";
 import type { Transaction, TransactionStatus } from "@/lib/types";
 
@@ -37,11 +38,11 @@ const SELECT_CLASSES =
 
 export function TransactionsExplorer({
   transactions,
-  onReversed,
+  onChanged,
 }: {
   transactions: Transaction[];
-  /** Live data only: enables the reverse action; called after a reversal posts. */
-  onReversed?: () => void;
+  /** Live data only: enables reverse / post / discard; called with a message after one succeeds. */
+  onChanged?: (message: string) => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | "all">(
     "all",
@@ -268,14 +269,18 @@ export function TransactionsExplorer({
                 </p>
               </div>
 
-              {onReversed && (selected.status === "posted" || selected.status === "reversed") && !selected.reverses && (
+              {onChanged && selected.status === "pending" && (
+                <DraftActions id={selected.id} onChanged={onChanged} />
+              )}
+
+              {onChanged && (selected.status === "posted" || selected.status === "reversed") && !selected.reverses && (
                 <ReversePanel
                   key={selected.id}
                   transactionId={selected.id}
                   asset={selected.asset}
                   exponent={selected.exponent}
                   totalUnits={BigInt(selected.amountUnits)}
-                  onReversed={onReversed}
+                  onReversed={onChanged}
                 />
               )}
 

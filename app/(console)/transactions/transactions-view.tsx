@@ -5,6 +5,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
+import { Notice } from "@/components/form";
+import { NewTransaction } from "@/components/new-transaction";
+import { Button } from "@/components/ui/button";
 import { DemoBadge } from "@/components/demo-badge";
 import {
   ApiDownBanner,
@@ -79,11 +82,11 @@ function toViewTransaction(
 function LiveTransactions({
   initial,
   filters,
-  onReversed,
+  onChanged,
 }: {
   initial: LiveTransactionsPage;
   filters: TransactionFilters;
-  onReversed: () => void;
+  onChanged: (message: string) => void;
 }) {
   const [pages, setPages] = useState<LiveTransactionsPage[]>([initial]);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -123,7 +126,7 @@ function LiveTransactions({
 
   return (
     <>
-      <TransactionsExplorer transactions={transactions} onReversed={onReversed} />
+      <TransactionsExplorer transactions={transactions} onChanged={onChanged} />
       {last.nextCursor && (
         <div className="flex justify-center">
           <button
@@ -221,6 +224,8 @@ export function TransactionsView() {
     ledgers: Record<string, string>;
     accounts: Record<string, string>;
   }>({ ledgers: {}, accounts: {} });
+  const [notice, setNotice] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const state = useLiveData(async () => {
     const page = await loadTransactionsPage(undefined, applied.current);
     setOptions((o) =>
@@ -243,8 +248,27 @@ export function TransactionsView() {
             credits per asset
           </p>
         </div>
-        <DemoBadge demo={state.status === "demo"} />
+        <span className="flex items-center gap-3">
+          <DemoBadge demo={state.status === "demo"} />
+          {state.status === "live" && !creating && (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              New transaction
+            </Button>
+          )}
+        </span>
       </div>
+
+      <Notice message={notice} />
+      {creating && (
+        <NewTransaction
+          onCancel={() => setCreating(false)}
+          onCreated={(m) => {
+            setCreating(false);
+            setNotice(m);
+            state.reload();
+          }}
+        />
+      )}
 
       {state.status !== "demo" && (
         <FilterBar
@@ -266,7 +290,10 @@ export function TransactionsView() {
         <ErrorBanner message={state.message} onRetry={state.reload} />
       )}
       {state.status === "live" && (
-        <LiveTransactions initial={state.data} filters={filters} onReversed={state.reload} />
+        <LiveTransactions initial={state.data} filters={filters} onChanged={(m) => {
+            setNotice(m);
+            state.reload();
+          }} />
       )}
     </div>
   );

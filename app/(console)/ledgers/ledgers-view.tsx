@@ -5,6 +5,9 @@
 
 import { BookOpenText, CornerDownRight, FileText, FolderTree } from "lucide-react";
 import { useState } from "react";
+import { ErrorLine, Field, inputClass, Notice } from "@/components/form";
+import { LedgerTools } from "@/components/ledger-tools";
+import { Button } from "@/components/ui/button";
 import { StatementDrawer } from "@/components/statement-drawer";
 import { DemoBadge } from "@/components/demo-badge";
 import {
@@ -17,7 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatMoneyWithAsset } from "@/lib/format";
-import { loadLedgersTree, type LedgerWithAccounts } from "@/lib/live";
+import { apiErrorText, createLedger, loadLedgersTree, type LedgerWithAccounts } from "@/lib/live";
 import { mockLedgers } from "@/lib/mock-data";
 
 const CREATE_LEDGER_CURL = `curl -s -X POST $API/v1/ledgers \\
@@ -217,26 +220,95 @@ function LedgerCard({
   );
 }
 
-function LiveLedgers({ data }: { data: LedgerWithAccounts[] }) {
+function NewLedger({ onCreated }: { onCreated: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!open)
+    return (
+      <Button size="sm" onClick={() => setOpen(true)}>
+        New ledger
+      </Button>
+    );
+  return (
+    <Card title="New ledger" subtitle="An isolated book of accounts. Its environment follows your session.">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Name">
+          <input className={inputClass} value={name} maxLength={255} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Description (optional)">
+          <input className={inputClass} value={description} maxLength={1024} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+      </div>
+      <ErrorLine message={error} />
+      <div className="mt-4 flex gap-2">
+        <Button
+          size="sm"
+          disabled={busy || name.trim() === ""}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              const l = await createLedger({
+                name: name.trim(),
+                ...(description.trim() ? { description: description.trim() } : {}),
+              });
+              onCreated(l.name);
+            } catch (e) {
+              setError(apiErrorText(e));
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Creating…" : "Create ledger"}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function LiveLedgers({
+  data,
+  reload,
+  onNotice,
+}: {
+  data: LedgerWithAccounts[];
+  reload: () => void;
+  onNotice: (m: string) => void;
+}) {
   const [statementFor, setStatementFor] = useState<{
     accountId: string;
     name: string;
   } | null>(null);
   if (data.length === 0) {
     return (
+      <>
+      <NewLedger onCreated={() => reload()} />
       <EmptyState
         title="No ledgers in this tenant yet"
         body="A ledger is an isolated book of accounts with its own account tree. Create the first one with this curl and reload."
         curl={CREATE_LEDGER_CURL}
         curlLabel="POST /v1/ledgers"
       />
+      </>
     );
   }
   return (
     <>
+      <NewLedger
+        onCreated={(n) => {
+          onNotice(`Created ledger ${n}.`);
+          reload();
+        }}
+      />
       {data.map(({ ledger, accounts }) => (
+        <div key={ledger.id} className="space-y-3">
         <LedgerCard
-          key={ledger.id}
           name={ledger.name}
           description={ledger.description ?? ""}
           environment={ledger.environment}
@@ -252,6 +324,14 @@ function LiveLedgers({ data }: { data: LedgerWithAccounts[] }) {
             })),
           }))}
         />
+        <LedgerTools
+          ledger={ledger}
+          onChanged={(m) => {
+            onNotice(m);
+            reload();
+          }}
+        />
+        </div>
       ))}
       {statementFor && (
         <StatementDrawer
@@ -288,6 +368,7 @@ function DemoLedgers() {
 
 export function LedgersView() {
   const state = useLiveData(loadLedgersTree);
+  const [notice, setNotice] = useState<string | null>(null);
 
   return (
     <div className="space-y-6">
@@ -303,13 +384,14 @@ export function LedgersView() {
         <DemoBadge demo={state.status === "demo"} />
       </div>
 
+      <Notice message={notice} />
       {state.status === "loading" && <LoadingCard orb="solving" />}
       {state.status === "demo" && <DemoLedgers />}
       {state.status === "down" && <ApiDownBanner onRetry={state.reload} />}
       {state.status === "error" && (
         <ErrorBanner message={state.message} onRetry={state.reload} />
       )}
-      {state.status === "live" && <LiveLedgers data={state.data} />}
+      {state.status === "live" && <LiveLedgers data={state.data} reload={state.reload} onNotice={setNotice} />}
     </div>
   );
 }

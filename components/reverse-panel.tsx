@@ -37,7 +37,7 @@ export function ReversePanel({
   asset: string;
   exponent: number;
   totalUnits: bigint;
-  onReversed: () => void;
+  onReversed: (message: string) => void;
 }) {
   const [txn, setTxn] = useState<ApiTransaction | null>(null);
   const [amount, setAmount] = useState("");
@@ -75,7 +75,7 @@ export function ReversePanel({
       setDone(`Reversal ${rev.id} posted.`);
       setConfirming(false);
       setAmount("");
-      onReversed();
+      onReversed(`Reversal ${rev.id} posted.`);
     } catch (err) {
       setError(
         err instanceof ApiError
