@@ -5277,6 +5277,17 @@ components:
         `liability` accounts and `own` for every other type; accounts that
         existed before this field got the same default.
 
+        **The default is a trap for two kinds of liability.** A liability is
+        born `customer` because most are wallets, so a liability that is *not*
+        owed to customers is counted against the customers' backing until it
+        is marked `own`: an intercompany account inflated a MX ledger's
+        `/coverage` shortfall by 554.45 that way. Send `fund_class: own` when
+        you create it (or `PATCH` it, which is audited). The same goes for a
+        payable to a provider and for any internal liability. The default is
+        kept on purpose (the conservative side: an obligation counted as
+        customer money can only make coverage look worse, never better), and
+        there is no way to infer the right answer from a name.
+
     FxPositionValue:
       type: object
       required: [conversion_net, customer_assets, customer_liabilities]
@@ -5522,6 +5533,21 @@ components:
             from its postings on transit accounts, each signed by the account's
             normal balance, so the balance of a transit account is always the
             sum of the transits of its movements.
+        provider:
+          type: string
+          maxLength: 64
+          description: |
+            The counterparty this account is with (6.6): the custody,
+            receivable or payable of that provider. Stored, lower-cased, set
+            here and never changed. The provider views (`/provider-positions`,
+            `/exposure`, the provider holds and freeze, the backing check) read
+            this attribute, never the name. Omitted: the server infers it from
+            `metadata.provider` or a `provider` path segment (so
+            `assets:provider:acme:custody` is `acme`), except for a `transit`
+            account, which gets none. `""` says "no provider", whatever the
+            name; a transit account cannot name
+            one (422 `validation_failed`). Accounts that existed before
+            carry what their names said when the attribute was introduced.
         metadata:
           $ref: '#/components/schemas/Metadata'
 
@@ -5630,6 +5656,12 @@ components:
         transit:
           type: boolean
           description: Whether this is a transit account; see `AccountCreate.transit`.
+        provider:
+          type: string
+          description: The provider the account is with, see `AccountCreate.provider`. Absent when none.
+        claim_provider:
+          type: string
+          description: Set on a holder's `provider_claim` account (ADR-020 §4), the provider whose freeze it holds a portion of. Absent otherwise.
         suspense:
           type: boolean
           description: Whether this is a suspense account; see `AccountCreate.suspense`.
