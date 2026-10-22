@@ -1720,6 +1720,16 @@ components:
         details:
           type: object
           description: |
+            An exception whose cause was corrected closes by itself (auto-resolve):
+            `status` becomes `resolved`, `details.auto_resolved` is `true`,
+            `details.resolved_by` links what resolved it (`{type: match, run_id, match_id}`
+            when a later run pairs the missing row, `{type: custody_balance, custody_balance_id}`
+            when a later snapshot agrees with the ledger, `{type: backing_check, checked_at}`
+            when the provider backing check no longer finds the break, or the movement
+            event for the two movement kinds) and an audit row records the update by the
+            system. `amount_mismatch`, `duplicate` and `settlement_mismatch` are never
+            auto-closed.
+
             Free-form context of the mismatch (external ref, amounts, etc.).
             Includes `rule_version`, the match rule version of the run, and,
             when an aggregate group (1:N / N:1) failed to match,
