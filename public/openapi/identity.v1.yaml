@@ -397,6 +397,37 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/security-alerts:
+    get:
+      operationId: listSecurityAlerts
+      tags: [ApiCredentials]
+      summary: Security alerts of the tenant
+      description: |
+        The tenant's 100 most recent alerts, newest first (owners and admins).
+        An alert is raised when a credential is used for the first time
+        (`credential_first_use`, info), when it is used from an address it never
+        used before (`credential_new_ip`, warning), and when one address or one
+        credential collects 20 refused requests in 5 minutes (`rejection_burst`,
+        high). Every refused signed request is also in the audit log with its
+        error code, and the rows are append-only.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: Recent alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SecurityAlert'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /v1/tenants/{id}/api-credentials:
     post:
       operationId: adminCreateApiCredential
@@ -1905,6 +1936,33 @@ components:
         last_seen_at:
           type: string
           format: date-time
+
+    SecurityAlert:
+      type: object
+      required: [id, occurred_at, kind, severity, credential_id, client_ip, details]
+      properties:
+        id:
+          type: integer
+          format: int64
+        occurred_at:
+          type: string
+          format: date-time
+        kind:
+          type: string
+          enum: [credential_first_use, credential_new_ip, rejection_burst]
+        severity:
+          type: string
+          enum: [info, warning, high]
+        credential_id:
+          type: [string, 'null']
+          format: uuid
+        client_ip:
+          type: string
+          description: Empty when the address could not be told.
+        details:
+          type: object
+          additionalProperties: true
+          description: Kind-specific context (never a secret).
 
     ApiCredentialRotate:
       type: object
