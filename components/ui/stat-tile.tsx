@@ -28,7 +28,7 @@ export function StatTile({
   tone = "emerald",
 }: StatTileProps) {
   return (
-    <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-5 shadow-[0_1px_0_rgb(255_255_255/0.03)_inset]">
+    <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-5 shadow-card">
       <div className="flex items-center justify-between">
         <p className="text-[11px] font-semibold tracking-wider text-ink-faint uppercase">
           {label}

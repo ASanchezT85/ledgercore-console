@@ -2,29 +2,36 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 import type { Metadata } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const geist = Geist({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-geist",
   display: "swap",
   fallback: ["system-ui", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
 });
 
-/**
- * Serif de titular. Un producto de contabilidad por partida doble hereda el
- * vocabulario visual del libro contable; el serif lo dice sin decorar nada.
- * Sólo pesa 400 — los titulares no llevan `font-semibold`, el contraste del
- * tipo hace ese trabajo.
- */
-const instrumentSerif = Instrument_Serif({
+const geistMono = Geist_Mono({
   subsets: ["latin"],
-  weight: "400",
-  variable: "--font-instrument-serif",
+  variable: "--font-geist-mono",
   display: "swap",
-  fallback: ["Georgia", "Times New Roman", "serif"],
+  fallback: ["ui-monospace", "Cascadia Code", "Menlo", "monospace"],
 });
+
+/** Display face for headings and the wordmark. */
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-bricolage",
+  display: "swap",
+  fallback: ["system-ui", "Segoe UI", "sans-serif"],
+});
+
+/**
+ * Applies the saved theme before first paint so a dark-mode user never sees a
+ * light flash. Light is the default; only an explicit choice switches it.
+ */
+const THEME_INIT = `try{if(localStorage.getItem("lc-theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
 
 export const metadata: Metadata = {
   title: {
@@ -41,8 +48,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${instrumentSerif.variable}`}
+      className={`${geist.variable} ${geistMono.variable} ${bricolage.variable}`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
       <body className="min-h-screen font-sans antialiased">
         {children}
       </body>

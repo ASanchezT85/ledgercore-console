@@ -7,6 +7,7 @@ import Link from "next/link";
 import { AuthorCredit } from "@/components/author-credit";
 import { BrandLockup } from "@/components/logo";
 import { LangToggle, useLang } from "@/components/language";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
  * Cabecera compartida de las páginas públicas (landing, login, signup).
@@ -37,6 +38,7 @@ export function PublicHeader({
         className="flex flex-wrap items-center justify-end gap-1"
         aria-label={t.nav.ariaLabel}
       >
+        <ThemeToggle />
         <LangToggle />
         {showHome && (
           <Link href="/" className={linkClass}>

@@ -196,7 +196,7 @@ function Lookup() {
       </div>
       <ErrorLine message={error} />
       {result && (
-        <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-edge bg-[#04070c] p-3 font-mono text-[11px] text-ink-muted">{JSON.stringify(result, null, 2)}</pre>
+        <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-edge bg-code p-3 font-mono text-[11px] text-ink-muted">{JSON.stringify(result, null, 2)}</pre>
       )}
     </Card>
   );

@@ -223,7 +223,7 @@ export function StatementDrawer({
           <p className="py-8 text-center text-sm text-ink-faint">Loading…</p>
         )}
         {state.status === "error" && (
-          <p className="py-8 text-center text-sm text-rose-400">
+          <p className="py-8 text-center text-sm text-danger">
             Could not load the statement: {state.message}
           </p>
         )}

@@ -8,7 +8,7 @@ type Size = "sm" | "md";
 
 const VARIANT_CLASSES: Record<Variant, string> = {
   primary:
-    "bg-accent-deep text-[#03150e] font-semibold hover:bg-accent shadow-[0_0_20px_rgb(16_185_129/0.25)]",
+    "bg-accent-deep text-on-accent font-semibold hover:bg-accent shadow-glow",
   outline:
     "border border-edge-strong text-ink hover:border-accent/60 hover:text-accent bg-transparent",
   ghost: "text-ink-muted hover:text-ink hover:bg-surface-hover bg-transparent",

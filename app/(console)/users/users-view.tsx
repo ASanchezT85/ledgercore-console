@@ -124,7 +124,7 @@ function SecurityCard() {
           <button
             type="submit"
             disabled={busy || code.replace(/\D/g, "").length < 6}
-            className="inline-flex h-10 items-center rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-[#03150e] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-on-accent hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             Generate new codes
           </button>
@@ -283,7 +283,7 @@ function LiveUsers() {
           <button
             type="submit"
             disabled={busy || !email.trim()}
-            className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-[#03150e] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             <MailPlus size={15} aria-hidden="true" />
             Send invitation

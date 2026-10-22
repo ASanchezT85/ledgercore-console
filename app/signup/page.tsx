@@ -131,7 +131,7 @@ function SignupContent() {
             <p className="text-sm text-ink-faint">{s.tagline}</p>
           </div>
 
-          <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-[0_1px_0_rgb(255_255_255/0.04)_inset,0_16px_48px_rgb(2_6_12/0.6)] backdrop-blur-md">
+          <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-raised backdrop-blur-md">
             {!result ? (
               <>
                 <div className="mb-5 flex items-center justify-between">
@@ -179,7 +179,7 @@ function SignupContent() {
                   </label>
 
                   {errorKey ? (
-                    <p className="flex items-start gap-2 rounded-(--radius-control) border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                    <p className="flex items-start gap-2 rounded-(--radius-control) border border-danger/30 bg-danger-soft px-3 py-2 text-xs text-danger">
                       <ShieldAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
                       {errorText(errorKey)}
                     </p>
@@ -188,7 +188,7 @@ function SignupContent() {
                   <button
                     type="submit"
                     disabled={busy}
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] shadow-[0_0_24px_rgb(16_185_129/0.3)] transition-colors hover:bg-accent disabled:opacity-60"
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent shadow-glow transition-colors hover:bg-accent disabled:opacity-60"
                   >
                     {busy && (
                       <ThinkingOrb
@@ -275,7 +275,7 @@ function SignupContent() {
 
                 <Link
                   href="/login"
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] shadow-[0_0_24px_rgb(16_185_129/0.3)] transition-colors hover:bg-accent"
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent shadow-glow transition-colors hover:bg-accent"
                 >
                   {s.goConsole}
                   <ArrowRight size={15} aria-hidden="true" />

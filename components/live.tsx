@@ -188,7 +188,7 @@ export function EmptyState({
         <p className="text-sm font-semibold text-ink">{title}</p>
         <p className="max-w-md text-sm text-ink-muted">{body}</p>
         {curl && (
-          <div className="mt-2 w-full max-w-2xl overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4 text-left">
+          <div className="mt-2 w-full max-w-2xl overflow-x-auto rounded-lg border border-edge bg-code p-4 text-left">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-[11px] font-medium tracking-wider text-ink-faint uppercase">
                 {curlLabel ?? "curl"}

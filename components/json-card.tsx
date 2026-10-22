@@ -72,7 +72,7 @@ export function JsonCard({
         onChange={(e) => setText(e.target.value)}
         spellCheck={false}
         rows={14}
-        className="w-full rounded-(--radius-control) border border-edge-strong bg-[#04070c] p-3 font-mono text-xs text-ink"
+        className="w-full rounded-(--radius-control) border border-edge-strong bg-code p-3 font-mono text-xs text-ink"
       />
       {parseError && <p className="mt-1 text-xs text-danger">{parseError}</p>}
       <ErrorLine message={error} />
@@ -94,7 +94,7 @@ export function JsonCard({
         )}
       </div>
       {result && (
-        <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-edge bg-[#04070c] p-3 font-mono text-[11px] text-ink-muted">
+        <pre className="mt-3 max-h-64 overflow-auto rounded-md border border-edge bg-code p-3 font-mono text-[11px] text-ink-muted">
           {JSON.stringify(result, null, 2)}
         </pre>
       )}

@@ -194,7 +194,7 @@ function Detail({ id, onBack, onChanged }: { id: string; onBack: () => void; onC
                   onClick={() => void act(a)}
                   className={`inline-flex h-10 items-center justify-center rounded-(--radius-control) px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     a === "approve" || a === "reinstate"
-                      ? "bg-accent-deep text-[#03150e] hover:bg-accent"
+                      ? "bg-accent-deep text-on-accent hover:bg-accent"
                       : "border border-danger/50 text-danger hover:bg-danger/10"
                   }`}
                 >

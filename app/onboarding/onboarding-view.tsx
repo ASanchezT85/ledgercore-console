@@ -31,7 +31,7 @@ type Load = { kind: "loading" } | { kind: "ready"; info: SessionInfo; ob: Onboar
 
 function Card({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-[0_1px_0_rgb(255_255_255/0.04)_inset,0_16px_48px_rgb(2_6_12/0.6)] backdrop-blur-md">
+    <section className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-raised backdrop-blur-md">
       <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
         {icon}
         {title}
@@ -42,7 +42,7 @@ function Card({ title, icon, children }: { title: string; icon?: React.ReactNode
 }
 
 const linkButton =
-  "inline-flex h-10 items-center justify-center rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-[#03150e] transition-colors hover:bg-accent";
+  "inline-flex h-10 items-center justify-center rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent";
 const ghostButton =
   "inline-flex h-10 items-center justify-center rounded-(--radius-control) border border-edge-strong px-4 text-sm font-medium text-ink transition-colors hover:border-accent/60 hover:text-accent";
 
@@ -83,7 +83,7 @@ function Stepper({ ob }: { ob: Onboarding }) {
               <span
                 className={`flex size-7 items-center justify-center rounded-full border text-xs font-semibold ${
                   state === "done"
-                    ? "border-accent bg-accent text-[#03150e]"
+                    ? "border-accent bg-accent text-on-accent"
                     : state === "current"
                       ? "border-accent text-accent"
                       : "border-edge-strong text-ink-faint"

@@ -282,7 +282,7 @@ function SourceTools({ source, onNotice }: { source: ReconSource; onNotice: (m: 
       )}
       <ErrorLine message={error} />
       {list && (
-        <pre className="max-h-64 overflow-auto rounded-md border border-edge bg-[#04070c] p-3 font-mono text-[11px] text-ink-muted">
+        <pre className="max-h-64 overflow-auto rounded-md border border-edge bg-code p-3 font-mono text-[11px] text-ink-muted">
           {list.items.length === 0 ? "Nothing yet." : JSON.stringify(list.items, null, 2)}
         </pre>
       )}

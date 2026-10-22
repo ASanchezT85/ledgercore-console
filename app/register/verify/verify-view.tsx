@@ -72,7 +72,7 @@ function VerifyEmail() {
         <p className="mb-5 text-xs text-ink-muted">{c.doneBody}</p>
         <Link
           href="/login"
-          className="inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] transition-colors hover:bg-accent"
+          className="inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent transition-colors hover:bg-accent"
         >
           {c.goLogin}
         </Link>

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 /**
- * LedgerCore logomark: a stylized isometric cube/ledger book. Pure inline
- * SVG so it ships with zero assets and inherits the accent gradient.
+ * LedgerCore logomark ("Contrapartida", 7.13): a debit arrow in and a credit
+ * arrow out that together read as an equals sign. Colors come from the theme
+ * tokens, so the mark follows light and dark mode.
  */
 export function Logomark({ size = 28 }: { size?: number }) {
   return (
@@ -15,30 +16,10 @@ export function Logomark({ size = 28 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
     >
-      <defs>
-        <linearGradient id="lc-grad" x1="4" y1="4" x2="28" y2="28">
-          <stop offset="0%" stopColor="#34d399" />
-          <stop offset="100%" stopColor="#0d9488" />
-        </linearGradient>
-      </defs>
-      {/* top face */}
-      <path
-        d="M16 3 28 9.5 16 16 4 9.5 16 3Z"
-        fill="url(#lc-grad)"
-        opacity="0.95"
-      />
-      {/* left face (ledger pages) */}
-      <path d="M4 9.5 16 16v13L4 22.5v-13Z" fill="url(#lc-grad)" opacity="0.55" />
-      {/* right face */}
-      <path d="M28 9.5 16 16v13l12-6.5v-13Z" fill="url(#lc-grad)" opacity="0.75" />
-      {/* page lines on the right face */}
-      <path
-        d="m18.5 18.4 7-3.8M18.5 21.6l7-3.8M18.5 24.8l7-3.8"
-        stroke="#022c22"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-        opacity="0.5"
-      />
+      <g strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 10h20M20 5l5 5-5 5" stroke="var(--color-debit)" />
+        <path d="M27 22H7M12 17l-5 5 5 5" stroke="var(--color-credit)" />
+      </g>
     </svg>
   );
 }
@@ -47,9 +28,7 @@ export function BrandLockup({ size = 28 }: { size?: number }) {
   return (
     <span className="inline-flex items-center gap-2.5">
       <Logomark size={size} />
-      <span className="text-lg font-semibold tracking-tight text-ink">
-        Ledger<span className="text-accent">Core</span>
-      </span>
+      <span className="font-serif text-lg tracking-tight text-ink">ledgercore</span>
     </span>
   );
 }

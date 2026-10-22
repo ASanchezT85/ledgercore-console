@@ -116,7 +116,7 @@ function LiveDevelopers() {
         subtitle="Sign your requests with an API credential and make your first call"
       >
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
+          <div className="overflow-x-auto rounded-lg border border-edge bg-code p-4">
             <div className="mb-3 flex items-center gap-2 text-ink-faint">
               <Terminal size={13} aria-hidden="true" />
               <span className="text-[11px] font-medium tracking-wider uppercase">
@@ -133,7 +133,7 @@ function LiveDevelopers() {
             <code className="font-mono">X-Nonce</code> (new on every request) and{" "}
             <code className="font-mono">X-Signature</code>, computed like this:
           </p>
-          <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
+          <div className="overflow-x-auto rounded-lg border border-edge bg-code p-4">
             <pre className="font-mono text-xs leading-relaxed text-ink-muted">
               <code>{CANONICAL}</code>
             </pre>

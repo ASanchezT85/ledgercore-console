@@ -23,7 +23,7 @@ export function Card({
 }: CardProps) {
   return (
     <section
-      className={`rounded-(--radius-card) border border-edge bg-surface/80 shadow-[0_1px_0_rgb(255_255_255/0.03)_inset,0_8px_24px_rgb(2_6_12/0.45)] backdrop-blur-sm ${className}`}
+      className={`rounded-(--radius-card) border border-edge bg-surface/80 shadow-card backdrop-blur-sm ${className}`}
     >
       {(title || actions) && (
         <header className="flex items-start justify-between gap-4 border-b border-edge px-5 py-4">

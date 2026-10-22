@@ -77,7 +77,7 @@ function SetPassword({ kind }: { kind: "invite" | "reset" }) {
         <p className="mb-4 text-xs text-ink-muted">{c.doneBody}</p>
         <Link
           href="/login"
-          className="inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] hover:bg-accent"
+          className="inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent hover:bg-accent"
         >
           {a.goLogin}
         </Link>

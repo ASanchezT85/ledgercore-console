@@ -62,7 +62,7 @@ export function CodeBlock({
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
+    <div className="overflow-x-auto rounded-lg border border-edge bg-code p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-2 text-[11px] font-medium tracking-wider text-ink-faint uppercase">
           <Terminal size={12} aria-hidden="true" />

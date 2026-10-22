@@ -25,6 +25,40 @@ declare global {
   }
 }
 
+// Scalar reads its colors from --scalar-* variables; point them at the tokens
+// in app/globals.css so the reference matches the console in both themes.
+const SCALAR_CSS = `
+.light-mode, .dark-mode {
+  --scalar-background-1: var(--color-canvas);
+  --scalar-background-2: var(--color-surface);
+  --scalar-background-3: var(--color-surface-raised);
+  --scalar-background-accent: var(--color-accent-soft);
+  --scalar-color-1: var(--color-ink);
+  --scalar-color-2: var(--color-ink-muted);
+  --scalar-color-3: var(--color-ink-faint);
+  --scalar-color-accent: var(--color-accent);
+  --scalar-border-color: var(--color-edge);
+  --scalar-color-green: var(--color-debit);
+  --scalar-color-blue: var(--color-info);
+  --scalar-color-orange: var(--color-credit);
+  --scalar-color-yellow: var(--color-warning);
+  --scalar-color-red: var(--color-danger);
+  --scalar-button-1: var(--color-accent);
+  --scalar-button-1-color: var(--color-on-accent);
+  --scalar-button-1-hover: var(--color-accent-deep);
+  --scalar-font: var(--font-sans);
+  --scalar-font-code: var(--font-mono);
+}
+.light-mode .t-doc__sidebar, .dark-mode .t-doc__sidebar {
+  --scalar-sidebar-background-1: var(--color-surface);
+  --scalar-sidebar-color-1: var(--color-ink);
+  --scalar-sidebar-color-2: var(--color-ink-muted);
+  --scalar-sidebar-border-color: var(--color-edge);
+  --scalar-sidebar-item-active-background: var(--color-accent-soft);
+  --scalar-sidebar-color-active: var(--color-accent);
+}
+`;
+
 const SOURCES = [
   { slug: "ledger", title: "Ledger Core", url: "/openapi/ledger.v1.yaml", default: true },
   { slug: "identity", title: "Identity", url: "/openapi/identity.v1.yaml" },
@@ -58,10 +92,12 @@ export function ApiReferenceView() {
         proxyUrl: "",
         // No usage telemetry leaves the page.
         telemetry: false,
-        forceDarkModeState: "dark",
+        // Follows the console theme; colors come from the shared tokens (7.13).
+        forceDarkModeState: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
         hideDarkModeToggle: true,
         hideTestRequestButton: false,
-        theme: "deepSpace",
+        theme: "none",
+        customCss: SCALAR_CSS,
         metaData: { title: "LedgerCore API Reference" },
       });
     };

@@ -4,53 +4,104 @@
 @import "tailwindcss";
 
 /*
- * LedgerCore Console design tokens.
- * Dark-first fintech palette: deep slate surfaces, emerald/teal accents,
- * subtle borders and tabular numerals for monetary values.
+ * LedgerCore design tokens — "Contrapartida" (7.13).
+ * Double entry as a visual system: debit blue and credit amber, balanced on
+ * neutral graphite. Light is the default; `<html data-theme="dark">` swaps
+ * every token, so components only ever reference tokens. The landing, the
+ * console and the API docs portal (Scalar, via customCss) share this file.
  */
 @theme {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  --font-serif: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
-  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", SFMono-Regular,
-    Menlo, monospace;
+  /* Display face. Kept under the `serif` name so existing `font-serif`
+     headings pick it up without touching every screen. */
+  --font-serif: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "Cascadia Code",
+    SFMono-Regular, Menlo, monospace;
 
   /* Surfaces */
-  --color-canvas: #05090f;
-  --color-surface: #0a111c;
-  --color-surface-raised: #0e1726;
-  --color-surface-hover: #131f31;
+  --color-canvas: #f6f6f4;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f1ee;
+  --color-surface-hover: #ebebe7;
+  --color-code: #f1f1ee;
 
   /* Borders */
-  --color-edge: rgb(148 163 184 / 0.12);
-  --color-edge-strong: rgb(148 163 184 / 0.24);
+  --color-edge: rgb(22 24 29 / 0.1);
+  --color-edge-strong: rgb(22 24 29 / 0.2);
 
   /* Text */
-  --color-ink: #e6edf6;
-  --color-ink-muted: #94a3b8;
-  --color-ink-faint: #5b6b81;
+  --color-ink: #16181d;
+  --color-ink-muted: #565a63;
+  --color-ink-faint: #7c808a;
 
-  /* Brand accents */
-  --color-accent: #34d399;
-  --color-accent-deep: #10b981;
-  --color-accent-soft: rgb(52 211 153 / 0.12);
-  --color-teal-glow: #2dd4bf;
+  /* Brand: debit (primary accent) and credit */
+  --color-accent: #2f5bea;
+  --color-accent-deep: #2449c9;
+  --color-accent-soft: rgb(47 91 234 / 0.1);
+  --color-on-accent: #ffffff;
+  --color-debit: #2f5bea;
+  --color-credit: #b86e00;
+  --color-credit-soft: rgb(184 110 0 / 0.1);
+  --color-teal-glow: #b86e00;
 
   /* Status */
-  --color-danger: #f87171;
-  --color-danger-soft: rgb(248 113 113 / 0.12);
-  --color-warning: #fbbf24;
-  --color-warning-soft: rgb(251 191 36 / 0.12);
-  --color-info: #7dd3fc;
-  --color-info-soft: rgb(125 211 252 / 0.12);
+  --color-danger: #c2362f;
+  --color-danger-soft: rgb(194 54 47 / 0.09);
+  --color-warning: #a35f00;
+  --color-warning-soft: rgb(184 110 0 / 0.11);
+  --color-info: #0f6f8c;
+  --color-info-soft: rgb(15 111 140 / 0.09);
+
+  /* Depth */
+  --shadow-card: 0 1px 2px rgb(22 24 29 / 0.05), 0 4px 16px rgb(22 24 29 / 0.04);
+  --shadow-raised: 0 1px 2px rgb(22 24 29 / 0.06), 0 16px 40px rgb(22 24 29 / 0.08);
+  --shadow-glow: 0 6px 18px rgb(47 91 234 / 0.25);
 
   /* Radii */
-  --radius-card: 0.875rem;
+  --radius-card: 0.75rem;
   --radius-control: 0.5rem;
 }
 
 :root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
   color-scheme: dark;
+  --color-canvas: #0e0f12;
+  --color-surface: #16181d;
+  --color-surface-raised: #1f2229;
+  --color-surface-hover: #262a32;
+  --color-code: #0a0b0d;
+  --color-edge: rgb(200 205 220 / 0.11);
+  --color-edge-strong: rgb(200 205 220 / 0.22);
+  --color-ink: #eceef2;
+  --color-ink-muted: #a2a7b2;
+  --color-ink-faint: #737884;
+  --color-accent: #7095ff;
+  --color-accent-deep: #5a82f5;
+  --color-accent-soft: rgb(112 149 255 / 0.14);
+  --color-on-accent: #0b0d12;
+  --color-debit: #7095ff;
+  --color-credit: #ffb547;
+  --color-credit-soft: rgb(255 181 71 / 0.13);
+  --color-teal-glow: #ffb547;
+  --color-danger: #ff7b72;
+  --color-danger-soft: rgb(255 123 114 / 0.12);
+  --color-warning: #ffb547;
+  --color-warning-soft: rgb(255 181 71 / 0.12);
+  --color-info: #7dd3fc;
+  --color-info-soft: rgb(125 211 252 / 0.12);
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-raised: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 16px 48px rgb(0 0 0 / 0.5);
+  --shadow-glow: 0 6px 20px rgb(112 149 255 / 0.28);
+}
+
+/* Display headings: Bricolage carries weight where Instrument Serif did not. */
+.font-serif {
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 html,
@@ -92,8 +143,8 @@ body {
    */
   outline: none;
   box-shadow:
-    0 0 0 2px #05090f,
-    0 0 0 4px #e6edf6;
+    0 0 0 2px var(--color-canvas),
+    0 0 0 4px var(--color-accent);
 }
 
 /*
@@ -160,20 +211,20 @@ body {
 }
 
 ::selection {
-  background: rgb(52 211 153 / 0.25);
+  background: var(--color-accent-soft);
 }
 
 /* Slim scrollbars that blend with the theme. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(148 163 184 / 0.25) transparent;
+  scrollbar-color: var(--color-edge-strong) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgb(148 163 184 / 0.25);
+  background: var(--color-edge-strong);
   border-radius: 4px;
 }
 *::-webkit-scrollbar-track {

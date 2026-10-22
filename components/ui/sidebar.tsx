@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { BrandLockup } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   getSessionInfo,
   hasSession,
@@ -140,7 +141,7 @@ export function Sidebar() {
 
       <div className="border-t border-edge px-3 py-4">
         <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/30 to-teal-500/30 text-xs font-semibold text-accent">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
             {live ? (info?.user.email.slice(0, 2).toUpperCase() ?? "…") : "MF"}
           </span>
           <div className="min-w-0 flex-1">
@@ -151,6 +152,7 @@ export function Sidebar() {
               {live ? (info?.user.role ?? "…") : "finance-ops@acme.com"}
             </p>
           </div>
+          <ThemeToggle className="size-7" />
           <button
             type="button"
             onClick={() => {

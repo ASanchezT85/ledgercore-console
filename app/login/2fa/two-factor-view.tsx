@@ -163,7 +163,7 @@ function TwoFactor() {
           type="button"
           disabled={!saved}
           onClick={() => router.push("/dashboard")}
-          className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {c.codes.continue}
         </button>

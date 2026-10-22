@@ -42,7 +42,7 @@ export function AuthPage({ children, wide = false }: { children: ReactNode; wide
 
 export function AuthCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-[0_1px_0_rgb(255_255_255/0.04)_inset,0_16px_48px_rgb(2_6_12/0.6)] backdrop-blur-md">
+    <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-raised backdrop-blur-md">
       <h1 className="mb-5 text-sm font-semibold text-ink">{title}</h1>
       {children}
     </div>
@@ -102,7 +102,7 @@ export function SubmitButton({
     <button
       type="submit"
       disabled={busy || disabled}
-      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-[#03150e] shadow-[0_0_24px_rgb(16_185_129/0.3)] transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) bg-accent-deep text-sm font-semibold text-on-accent shadow-glow transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
     >
       {busy && <ThinkingOrb state="listening" size={20} theme="light" aria-hidden="true" />}
       {busy ? busyLabel : label}

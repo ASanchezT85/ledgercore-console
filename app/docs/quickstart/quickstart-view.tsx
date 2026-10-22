@@ -326,7 +326,7 @@ function CodeBlock({
 }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
+    <div className="overflow-x-auto rounded-lg border border-edge bg-code p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-2 text-[11px] font-medium tracking-wider text-ink-faint uppercase">
           <Terminal size={12} aria-hidden="true" />
@@ -440,7 +440,7 @@ function QuickstartContent() {
           <Step index={1} copy={firstStep}>
             <Link
               href="/signup"
-              className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-5 text-sm font-semibold text-[#03150e] shadow-[0_0_24px_rgb(16_185_129/0.3)] transition-colors hover:bg-accent"
+              className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-5 text-sm font-semibold text-on-accent shadow-glow transition-colors hover:bg-accent"
             >
               {c.signupCta}
               <ArrowRight size={15} aria-hidden="true" />
@@ -511,7 +511,7 @@ function QuickstartContent() {
           <div className="mt-6 flex items-center justify-center gap-3">
             <Link
               href="/signup"
-              className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-5 text-sm font-semibold text-[#03150e] transition-colors hover:bg-accent"
+              className="inline-flex h-10 items-center gap-2 rounded-(--radius-control) bg-accent-deep px-5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent"
             >
               {c.finalCta}
             </Link>
