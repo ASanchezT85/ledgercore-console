@@ -619,11 +619,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [state, user, enabled, recovery_codes_remaining]
+                required: [state, csrf_token, user, enabled, recovery_codes_remaining]
                 properties:
                   state:
                     type: string
                     enum: [active, password_verified]
+                  csrf_token:
+                    type: string
+                    description: The session's CSRF token, for a page that was reloaded and lost the one login returned.
                   user:
                     $ref: '#/components/schemas/User'
                   enabled:

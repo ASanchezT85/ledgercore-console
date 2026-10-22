@@ -17,7 +17,7 @@ import {
   SubmitButton,
 } from "@/components/auth-shell";
 import { useLang } from "@/components/language";
-import { AuthError, LockedError, login, logout } from "@/lib/session";
+import { AuthError, LockedError, login } from "@/lib/session";
 import { useQueryParam } from "@/lib/use-query-param";
 
 function LoginForm() {
@@ -38,14 +38,9 @@ function LoginForm() {
     setError(null);
     try {
       const state = await login(email, password);
-      if (state !== "active") {
-        // A second factor is pending (roadmap 7.3): the console cannot finish it yet.
-        await logout();
-        setError(c.errSecondFactor);
-        setBusy(false);
-        return;
-      }
-      router.push("/dashboard");
+      // Not active yet: the second factor is mandatory (ADR-022). The 2FA screen
+      // asks the server whether to enrol or to verify.
+      router.push(state === "active" ? "/dashboard" : "/login/2fa");
     } catch (err) {
       if (err instanceof AuthError) {
         setError(c.errInvalid);

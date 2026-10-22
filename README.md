@@ -57,6 +57,18 @@ una marca no secreta (`lc_signed_in`) para distinguir una sesión real del modo
 demo. Hasta que exista el SMTP (7.9) los enlaces de invitación y reset se leen
 del log de identity.
 
+### Verificación en dos pasos (ADR-022)
+
+Es obligatoria: tras la contraseña, `/login/2fa` pregunta a identity
+(`GET /v1/auth/2fa`) qué mostrar, así que un reload cae en la pantalla
+correcta. Sin autenticador: QR (dibujado en el navegador con `uqr`, sin red:
+el URI `otpauth://` lleva el secreto) más la clave en texto, un código para
+confirmar y los 10 códigos de recuperación, que se ven **una sola vez** (con
+botón de copiar) y no se guardan en ningún storage. Con autenticador: el código
+de 6 dígitos, o un código de recuperación. En `/users`, un owner o admin
+resetea el 2FA de otro usuario y cada quien puede regenerar sus códigos de
+recuperación con un código nuevo de la app.
+
 ### Modo demo
 
 Los servicios Go se construyen en paralelo, así que la consola **nunca asume

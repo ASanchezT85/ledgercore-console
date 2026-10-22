@@ -5,19 +5,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MailPlus, UserCheck, UserX } from "lucide-react";
+import { MailPlus, ShieldOff, UserCheck, UserX } from "lucide-react";
 import { DemoBadge } from "@/components/demo-badge";
 import { ErrorBanner, LoadingCard } from "@/components/live";
+import { RecoveryCodes } from "@/components/recovery-codes";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import {
   AuthError,
+  CodeError,
   hasSession,
   IdentityError,
   identityFetch,
   getSessionInfo,
+  LockedError,
   logout,
+  regenerateRecoveryCodes,
+  twoFactorStatus,
   type ConsoleUser,
   type Role,
   type SessionInfo,
@@ -48,6 +53,97 @@ function assignable(actor: Role): Role[] {
 
 function formatWhen(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "never";
+}
+
+/** Your own authenticator: how many recovery codes are left, and a way to replace them. */
+function SecurityCard() {
+  const [left, setLeft] = useState<number | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [code, setCode] = useState("");
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    twoFactorStatus()
+      .then((st) => setLeft(st.recovery_codes_remaining))
+      .catch(() => setLeft(null));
+  }, []);
+
+  async function regenerate(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy || !code.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const fresh = await regenerateRecoveryCodes(code.trim());
+      setCodes(fresh);
+      setLeft(fresh.length);
+      setAsking(false);
+      setCode("");
+    } catch (err) {
+      if (err instanceof CodeError) setError("Wrong or already used code. Wait for the next one in your app.");
+      else if (err instanceof LockedError) setError(`Too many attempts. Try again in ${err.retryAfter} s.`);
+      else setError(err instanceof Error ? err.message : "unknown_error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card title="Your two-factor authentication" subtitle="Authenticator app (TOTP) with recovery codes">
+      <p className="text-sm text-ink-muted">
+        {left === null ? "Two-factor authentication is on for your account." : `${left} recovery code${left === 1 ? "" : "s"} left.`}{" "}
+        Each recovery code works once, if you lose your phone.
+      </p>
+      {codes && (
+        <div className="mt-3 max-w-md">
+          <p className="mb-2 text-xs text-ink">
+            New recovery codes. The old ones no longer work, and these are shown only now.
+          </p>
+          <RecoveryCodes codes={codes} copyLabel="Copy all" copiedLabel="Copied" />
+        </div>
+      )}
+      {asking ? (
+        <form onSubmit={regenerate} className="mt-3 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-muted">Code from your app</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={7}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/[^\d ]/g, ""))}
+              placeholder="123456"
+              className="h-10 w-36 rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 font-mono text-sm tracking-widest text-ink"
+              autoFocus
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={busy || code.replace(/\D/g, "").length < 6}
+            className="inline-flex h-10 items-center rounded-(--radius-control) bg-accent-deep px-4 text-sm font-semibold text-[#03150e] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Generate new codes
+          </button>
+          {error && <p role="alert" className="w-full text-xs text-danger">{error}</p>}
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setAsking(true);
+            setCodes(null);
+            setError(null);
+          }}
+          className="mt-3 text-xs text-accent hover:underline"
+        >
+          Generate new recovery codes
+        </button>
+      )}
+    </Card>
+  );
 }
 
 function LiveUsers() {
@@ -118,14 +214,17 @@ function LiveUsers() {
   const mine = assignable(info.user.role);
   if (mine.length === 0) {
     return (
-      <Card title="Users" subtitle="Only owners and admins manage users">
-        <p className="text-sm text-ink-muted">
-          You are signed in as <strong className="text-ink">{info.user.email}</strong> with
-          the <Badge tone="slate">{info.user.role}</Badge> role: {ROLE_HELP[info.user.role]}.
-          Ask an owner or admin of <strong className="text-ink">{info.tenant.name}</strong> to
-          change your role.
-        </p>
-      </Card>
+      <>
+        <Card title="Users" subtitle="Only owners and admins manage users">
+          <p className="text-sm text-ink-muted">
+            You are signed in as <strong className="text-ink">{info.user.email}</strong> with
+            the <Badge tone="slate">{info.user.role}</Badge> role: {ROLE_HELP[info.user.role]}.
+            Ask an owner or admin of <strong className="text-ink">{info.tenant.name}</strong> to
+            change your role.
+          </p>
+        </Card>
+        <SecurityCard />
+      </>
     );
   }
 
@@ -198,6 +297,7 @@ function LiveUsers() {
             <TH>Email</TH>
             <TH>Role</TH>
             <TH>Status</TH>
+            <TH>2FA</TH>
             <TH>Last sign-in</TH>
             <TH className="text-right">Actions</TH>
           </THead>
@@ -237,8 +337,34 @@ function LiveUsers() {
                     {u.status}
                   </Badge>
                 </TD>
+                <TD>
+                  <Badge tone={u.two_factor_enabled ? "emerald" : "slate"}>
+                    {u.two_factor_enabled ? "on" : "off"}
+                  </Badge>
+                </TD>
                 <TD className="text-xs whitespace-nowrap">{formatWhen(u.last_login_at)}</TD>
-                <TD className="text-right">
+                <TD className="space-x-3 text-right">
+                  {canTouch(u) && u.two_factor_enabled && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `Reset two-factor for ${u.email}? Their sessions end now and they must set up the authenticator again at the next sign-in.`,
+                          )
+                        )
+                          return;
+                        void act(
+                          () => identityFetch("DELETE", `users/${u.id}/2fa`, undefined, { csrf: true }),
+                          `Two-factor reset for ${u.email}.`,
+                        );
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline disabled:opacity-50"
+                    >
+                      <ShieldOff size={13} aria-hidden="true" /> Reset 2FA
+                    </button>
+                  )}
                   {canTouch(u) &&
                     (u.status === "disabled" ? (
                       u.last_login_at !== null && (
@@ -278,6 +404,8 @@ function LiveUsers() {
           </TBody>
         </Table>
       </Card>
+
+      <SecurityCard />
     </>
   );
 }

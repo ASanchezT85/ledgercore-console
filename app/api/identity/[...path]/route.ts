@@ -23,6 +23,9 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^users$/, methods: ["GET"] },
   { pattern: /^users\/invitations$/, methods: ["POST"] },
   { pattern: /^users\/[0-9a-f-]{36}$/i, methods: ["PATCH"] },
+  { pattern: /^users\/[0-9a-f-]{36}\/2fa$/i, methods: ["DELETE"] },
+  { pattern: /^auth\/2fa$/, methods: ["GET"] },
+  { pattern: /^auth\/2fa\/(enrollment|enrollment\/confirm|verify|recovery-codes)$/, methods: ["POST"] },
 ];
 
 const SESSION_COOKIE = "lc_session";
@@ -42,7 +45,7 @@ async function proxy(
     return json(404, "not_found", "resource not found");
   }
 
-  // A browser POST/PATCH must come from this very origin (login CSRF and
+  // A browser POST/PATCH/DELETE must come from this very origin (login CSRF and
   // friends); the session cookie is SameSite=Lax and writes also need the
   // CSRF header, so this is belt and braces.
   if (request.method !== "GET") {
@@ -106,3 +109,4 @@ async function proxy(
 export const GET = proxy;
 export const POST = proxy;
 export const PATCH = proxy;
+export const DELETE = proxy;

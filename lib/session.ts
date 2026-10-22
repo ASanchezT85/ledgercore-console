@@ -48,6 +48,8 @@ export interface ConsoleUser {
   status: "invited" | "active" | "disabled";
   created_at: string;
   last_login_at: string | null;
+  /** The user has a confirmed authenticator (TOTP). */
+  two_factor_enabled: boolean;
 }
 
 export interface SessionInfo {
@@ -82,6 +84,14 @@ export class IdentityError extends Error {
   ) {
     super(message);
     this.name = "IdentityError";
+  }
+}
+
+/** The TOTP or recovery code was wrong or already used. */
+export class CodeError extends Error {
+  constructor() {
+    super("invalid_code");
+    this.name = "CodeError";
   }
 }
 
@@ -329,4 +339,87 @@ export async function sessionClaims(): Promise<SessionClaims | null> {
   } catch {
     return null;
   }
+}
+
+// ---- Second factor (7.3, ADR-022) ------------------------------------------
+//
+// Between the password and the code the session is "password_verified": it
+// authorizes only these calls. The CSRF token that login returned lives in
+// memory, so a reloaded page asks for it again through GET auth/2fa.
+
+export interface TwoFactorStatus {
+  state: "active" | "password_verified";
+  csrf_token: string;
+  user: ConsoleUser;
+  /** The user already has an authenticator: verify instead of enrol. */
+  enabled: boolean;
+  recovery_codes_remaining: number;
+}
+
+export interface Enrollment {
+  /** Base32, for typing into the authenticator by hand. */
+  secret: string;
+  /** otpauth:// URI, rendered as a QR code. */
+  otpauth_uri: string;
+}
+
+/** Session state and what the second-factor screen has to show. Throws AuthError without a live session. */
+export async function twoFactorStatus(): Promise<TwoFactorStatus> {
+  try {
+    const st = await identityFetch<TwoFactorStatus>("GET", "auth/2fa");
+    memCsrf = st.csrf_token;
+    return st;
+  } catch (err) {
+    if (err instanceof IdentityError && err.status === 401) {
+      forget();
+      throw new AuthError("no_session");
+    }
+    throw err;
+  }
+}
+
+async function twoFactorCall<T>(path: string, body?: unknown): Promise<T> {
+  const csrf = memCsrf ?? (await twoFactorStatus()).csrf_token;
+  try {
+    return await identityFetch<T>("POST", path, body ?? {}, { csrfToken: csrf });
+  } catch (err) {
+    if (err instanceof IdentityError && err.status === 401) {
+      // identity answers 401 both for a wrong code and for a dead session.
+      if (err.message.includes("code")) throw new CodeError();
+      forget();
+      throw new AuthError("no_session");
+    }
+    throw err;
+  }
+}
+
+/** The pending authenticator. Idempotent: the same secret until it is confirmed. */
+export function startEnrollment(): Promise<Enrollment> {
+  return twoFactorCall<Enrollment>("auth/2fa/enrollment");
+}
+
+/** Confirms the authenticator with a code, opens the session and returns the recovery codes (shown once). */
+export async function confirmEnrollment(code: string): Promise<string[]> {
+  const res = await twoFactorCall<{ recovery_codes: string[] }>("auth/2fa/enrollment/confirm", { code });
+  memInfo = null;
+  memToken = null;
+  return res.recovery_codes;
+}
+
+/** Proves the second factor with a TOTP code or a recovery code; the session becomes active. */
+export async function verifySecondFactor(
+  input: { code: string } | { recoveryCode: string },
+): Promise<void> {
+  await twoFactorCall(
+    "auth/2fa/verify",
+    "code" in input ? { code: input.code } : { recovery_code: input.recoveryCode },
+  );
+  memInfo = null;
+  memToken = null;
+}
+
+/** Replaces the recovery codes (needs a fresh TOTP code); returns the new ones, shown once. */
+export async function regenerateRecoveryCodes(code: string): Promise<string[]> {
+  const res = await twoFactorCall<{ recovery_codes: string[] }>("auth/2fa/recovery-codes", { code });
+  return res.recovery_codes;
 }
