@@ -50,6 +50,7 @@ tags:
   - name: Auth
   - name: Console
   - name: Onboarding
+  - name: BackOffice
   - name: Users
 
 paths:
@@ -1204,6 +1205,168 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/backoffice/accounts:
+    get:
+      operationId: listReviewAccounts
+      tags: [BackOffice]
+      summary: The review queue
+      description: |
+        **Platform operators only** (LedgerCore staff; any tenant role, owners
+        included, gets `403`). Accounts in the given status, oldest submission
+        first. The default, `under_review`, is the queue. The platform tenant is
+        never listed.
+      security:
+        - consoleSession: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [registered, email_verified, mfa_enrolled, sandbox, under_review, approved, rejected, suspended, all]
+            default: under_review
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: The accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReviewAccount'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/backoffice/accounts/{id}:
+    get:
+      operationId: getReviewAccount
+      tags: [BackOffice]
+      summary: One account, with its history
+      description: |
+        Platform operators only. The data the operator decides on plus the
+        audited history of the account (registration, verifications, every
+        status change with its actor and reason). `{id}` is the tenant id; the
+        platform tenant answers `404`.
+      security:
+        - consoleSession: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewAccount'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/backoffice/accounts/{id}/decision:
+    post:
+      operationId: decideReviewAccount
+      tags: [BackOffice]
+      summary: Approve, reject, suspend or reinstate an account
+      description: |
+        Platform operators only. **A reason is required for every decision**
+        (at most 1000 characters). Each decision starts from one status:
+        `approve` and `reject` from `under_review`, `suspend` from `approved`,
+        `reinstate` from `suspended`; anything else is `409 conflict`, so two
+        operators deciding at once cannot both win. `approve` makes live
+        credentials possible; `suspend` also suspends the tenant (nobody signs
+        in, no signature verifies) and `reinstate` lifts it. The decision, its
+        reason and the operator are in the audit log (`account.status_changed`).
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reason]
+              additionalProperties: false
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject, suspend, reinstate]
+                reason:
+                  type: string
+                  maxLength: 1000
+                  description: Shown to the account owner after a rejection.
+      responses:
+        '200':
+          description: The account after the decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewAccount'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The account is not in the status the decision starts from (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/platform/operators:
+    post:
+      operationId: invitePlatformOperator
+      tags: [BackOffice]
+      summary: Invite a member of LedgerCore staff
+      description: |
+        Admin token only (bootstrap). Invites an email as a `platform_operator`
+        of the platform tenant: a one-time invitation to set the password, then
+        the mandatory authenticator at the first login. A tenant cannot create
+        platform operators in any way, and the database refuses the role outside
+        the platform tenant.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+      responses:
+        '201':
+          description: Invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: That email already belongs to a user (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/users:
     get:
       operationId: listUsers
@@ -1819,7 +1982,11 @@ components:
 
     Role:
       type: string
-      enum: [owner, admin, operator, viewer, auditor]
+      enum: [owner, admin, operator, viewer, auditor, platform_operator]
+      description: |
+        `platform_operator` is LedgerCore staff (the back office, 7.5): it exists
+        only in the platform tenant, holds no scope on any tenant's data and can
+        never be assigned by a tenant (`403`).
 
     User:
       type: object
@@ -1983,6 +2150,45 @@ components:
         status_changed_at:
           type: string
           format: date-time
+
+    ReviewAccount:
+      allOf:
+        - $ref: '#/components/schemas/Onboarding'
+        - type: object
+          required: [name, slug, owner_email, created_at]
+          properties:
+            name:
+              type: string
+              description: The tenant's name (the legal name given at signup).
+            slug:
+              type: string
+            owner_email:
+              type: string
+            decided_by:
+              type: string
+              description: The actor of the last decision, `user:<operator id>`.
+            created_at:
+              type: string
+              format: date-time
+            history:
+              type: array
+              description: Only in the single-account response, oldest first.
+              items:
+                type: object
+                required: [occurred_at, action, actor, before, after]
+                properties:
+                  occurred_at:
+                    type: string
+                    format: date-time
+                  action:
+                    type: string
+                    examples: [account.status_changed]
+                  actor:
+                    type: string
+                  before:
+                    type: [object, 'null']
+                  after:
+                    type: [object, 'null']
 
     TokenPassword:
       type: object

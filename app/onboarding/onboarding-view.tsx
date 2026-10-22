@@ -6,11 +6,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, Clock, LogOut, ShieldAlert } from "lucide-react";
+import { Check, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { ErrorNote, InfoNote, SubmitButton } from "@/components/auth-shell";
 import { CodeInput } from "@/components/code-input";
-import { LangToggle, LanguageProvider, useLang } from "@/components/language";
-import { BrandLockup } from "@/components/logo";
+import { LanguageProvider, useLang } from "@/components/language";
+import { SessionHeader } from "@/components/session-header";
 import {
   getOnboarding,
   PRE_SANDBOX,
@@ -225,7 +225,7 @@ function PhoneStep({ phone, onDone }: { phone: string; onDone: () => void }) {
   );
 }
 
-function ReviewRequest({ title, body, label, onDone, extra }: { title: string; body: React.ReactNode; label: string; onDone: () => void; extra?: React.ReactNode }) {
+function ReviewRequest({ title, body, label, onDone, extra, icon }: { title: string; body: React.ReactNode; label: string; onDone: () => void; extra?: React.ReactNode; icon?: React.ReactNode }) {
   const { t } = useLang();
   const c = t.onboarding;
   const [busy, setBusy] = useState(false);
@@ -242,7 +242,7 @@ function ReviewRequest({ title, body, label, onDone, extra }: { title: string; b
     }
   }
   return (
-    <Card title={title} icon={<CheckCircle2 size={16} className="text-accent" aria-hidden="true" />}>
+    <Card title={title} icon={icon ?? <CheckCircle2 size={16} className="text-accent" aria-hidden="true" />}>
       <div className="mb-4 text-xs text-ink-muted">{body}</div>
       {error && <div className="mb-3"><ErrorNote>{error}</ErrorNote></div>}
       <div className="flex flex-wrap gap-2">
@@ -346,6 +346,7 @@ function Wizard() {
     body = (
       <ReviewRequest
         title={c.rejected.title}
+        icon={<ShieldAlert size={16} className="text-danger" aria-hidden="true" />}
         label={c.rejected.again}
         onDone={() => void refresh()}
         body={
@@ -382,39 +383,7 @@ function Wizard() {
           <Link href="/dashboard" className="text-accent hover:underline">{c.goConsole}</Link>
         </p>
       )}
-      <p className="mt-2 text-center sm:hidden">
-        <button type="button" onClick={() => void signOut()} className="text-[11px] text-ink-faint hover:text-danger">{c.signOut}</button>
-      </p>
     </>
-  );
-}
-
-function Header() {
-  const router = useRouter();
-  const { t } = useLang();
-  return (
-    <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-6">
-      <Link href="/" aria-label={t.nav.homeAriaLabel}>
-        <BrandLockup size={30} />
-      </Link>
-      <nav className="flex items-center gap-2" aria-label={t.nav.ariaLabel}>
-        <LangToggle />
-        <Link href="/" className="hidden h-11 items-center rounded-(--radius-control) px-4 text-sm text-ink-muted transition-colors hover:text-ink sm:inline-flex">
-          {t.nav.home}
-        </Link>
-        <button
-          type="button"
-          onClick={() => {
-            void logout();
-            router.replace("/login");
-          }}
-          className="hidden h-11 items-center gap-2 rounded-(--radius-control) border border-edge-strong px-4 text-sm text-ink transition-colors hover:border-danger/60 hover:text-danger sm:inline-flex"
-        >
-          <LogOut size={14} aria-hidden="true" />
-          {t.onboarding.signOut}
-        </button>
-      </nav>
-    </header>
   );
 }
 
@@ -422,7 +391,7 @@ function Frame() {
   const { t } = useLang();
   return (
     <div className="flex min-h-screen flex-col">
-      <Header />
+      <SessionHeader />
       <main className="flex flex-1 justify-center px-4 pb-10">
         <div className="w-full max-w-xl">
           <h1 className="mb-6 text-lg font-semibold text-ink">{t.onboarding.title}</h1>

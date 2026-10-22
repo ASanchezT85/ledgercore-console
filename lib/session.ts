@@ -39,7 +39,7 @@ export interface SessionClaims {
   exp: number;
 }
 
-export type Role = "owner" | "admin" | "operator" | "viewer" | "auditor";
+export type Role = "owner" | "admin" | "operator" | "viewer" | "auditor" | "platform_operator";
 
 export interface ConsoleUser {
   id: string;

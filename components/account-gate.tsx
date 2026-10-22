@@ -27,7 +27,12 @@ export function AccountGate() {
     setLang(detectLang());
     void getSessionInfo().then((info) => {
       const st = info?.account_status as AccountStatus | undefined;
-      if (!st) return;
+      if (!info || !st) return;
+      // LedgerCore staff have no ledger to look at: their desk is the back office.
+      if (info.user.role === "platform_operator") {
+        router.replace("/backoffice");
+        return;
+      }
       if (PRE_SANDBOX.includes(st)) router.replace("/onboarding");
       else setStatus(st);
     });

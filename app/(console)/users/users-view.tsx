@@ -36,6 +36,7 @@ const ROLE_HELP: Record<Role, string> = {
   operator: "Read and write ledger and reconciliation; reads webhooks",
   viewer: "Reads ledger and reconciliation",
   auditor: "Reads ledger, reconciliation and webhooks",
+  platform_operator: "LedgerCore staff (back office); never assigned from a tenant",
 };
 
 const STATUS_TONE: Record<ConsoleUser["status"], BadgeTone> = {

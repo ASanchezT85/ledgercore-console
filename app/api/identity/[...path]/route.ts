@@ -35,6 +35,10 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^onboarding\/accounts$/, methods: ["POST"] },
   { pattern: /^onboarding\/(email\/(verify|resend)|phone\/(send|verify)|review)$/, methods: ["POST"] },
   { pattern: /^auth\/2fa\/(enrollment|enrollment\/confirm|verify|recovery-codes)$/, methods: ["POST"] },
+  // Back office (7.5): identity lets in only platform operators.
+  { pattern: /^backoffice\/accounts$/, methods: ["GET"] },
+  { pattern: /^backoffice\/accounts\/[0-9a-f-]{36}$/i, methods: ["GET"] },
+  { pattern: /^backoffice\/accounts\/[0-9a-f-]{36}\/decision$/i, methods: ["POST"] },
 ];
 
 const SESSION_COOKIE = "lc_session";
