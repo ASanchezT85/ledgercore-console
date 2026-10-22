@@ -229,11 +229,11 @@ export function TransactionsExplorer({
                     >
                       <div className="flex min-w-0 items-center gap-2.5">
                         {posting.direction === "debit" ? (
-                          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-info-soft text-info">
+                          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-debit">
                             <ArrowDownLeft size={13} aria-hidden="true" />
                           </span>
                         ) : (
-                          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+                          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-credit-soft text-credit">
                             <ArrowUpRight size={13} aria-hidden="true" />
                           </span>
                         )}
@@ -249,8 +249,8 @@ export function TransactionsExplorer({
                       <span
                         className={`num shrink-0 text-sm font-medium ${
                           posting.direction === "debit"
-                            ? "text-info"
-                            : "text-accent"
+                            ? "text-debit"
+                            : "text-credit"
                         }`}
                       >
                         {posting.direction === "debit" ? "+" : "−"}

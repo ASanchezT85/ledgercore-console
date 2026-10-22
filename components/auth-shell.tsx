@@ -15,7 +15,7 @@ function Shell({ children, wide }: { children: ReactNode; wide: boolean }) {
   return (
     <div className="flex min-h-screen flex-col">
       <PublicHeader hideLogin showHome />
-      <div className="flex flex-1 items-center justify-center px-4 py-10">
+      <div className="lc-ledger-grid flex flex-1 items-center justify-center px-4 py-10">
         <div className={wide ? "w-full max-w-xl" : "w-full max-w-sm"}>
           <div className="mb-8 flex flex-col items-center gap-3 text-center">
             <BrandLockup size={40} />
@@ -43,7 +43,7 @@ export function AuthPage({ children, wide = false }: { children: ReactNode; wide
 export function AuthCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-(--radius-card) border border-edge bg-surface/80 p-6 shadow-raised backdrop-blur-md">
-      <h1 className="mb-5 text-sm font-semibold text-ink">{title}</h1>
+      <h1 className="mb-5 font-serif text-xl text-ink">{title}</h1>
       {children}
     </div>
   );

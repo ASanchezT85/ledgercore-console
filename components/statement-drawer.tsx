@@ -265,7 +265,7 @@ export function StatementDrawer({
                   <div className="flex shrink-0 flex-col items-end">
                     <span
                       className={`num text-[13px] font-medium ${
-                        e.direction === "CREDIT" ? "text-accent" : "text-ink"
+                        e.direction === "CREDIT" ? "text-credit" : "text-debit"
                       }`}
                     >
                       {e.direction === "CREDIT" ? "+" : "−"}
