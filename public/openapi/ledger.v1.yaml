@@ -1239,6 +1239,13 @@ paths:
         deducted must be recorded even if the customer is frozen); see
         `POST /v1/transactions`. The audit row names the reversal and the
         original in `reverses`.
+
+        `metadata` is copied onto the reversal and into
+        `ledger.transaction.reversed`, checked like a transaction's metadata
+        (scalars, no personal data, the ledger's `transaction_keys` allowlist).
+        It is part of the idempotency fingerprint: a retry with other metadata
+        under the same key is a 409. A reversal without `metadata` is
+        unchanged.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -1260,11 +1267,15 @@ paths:
                   maxLength: 1024
                 frozen_override:
                   $ref: '#/components/schemas/FrozenOverride'
+                metadata:
+                  $ref: '#/components/schemas/Metadata'
             examples:
               chargeback:
                 value:
                   idempotency_key: rev-dep-2026-0001
                   reason: chargeback
+                  metadata:
+                    settlement_id: stl_2026_0042
       responses:
         '201':
           description: The reversal transaction.
