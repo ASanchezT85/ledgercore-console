@@ -1638,7 +1638,7 @@ components:
         | low | 7 days |
 
         The table is fixed for all tenants. The default severity depends on the
-        kind: `balance_mismatch` is `critical`; `amount_mismatch`, `duplicate`
+        kind: `balance_mismatch` and `provider_backing_break` are `critical`; `amount_mismatch`, `duplicate`
         and `settlement_mismatch` are `high`; the others `medium`.
 
     Discrepancy:
@@ -1657,11 +1657,16 @@ components:
           description: Run that found it; null for custody and settlement exceptions raised outside a run.
         kind:
           type: string
-          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch]
+          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch, provider_backing_break]
           description: |
             `duplicate` flags statement rows repeating a key that a rule allows only once.
             `balance_mismatch` is a custody snapshot whose reported balance differs from the ledger's.
             `settlement_mismatch` is a settlement batch whose payout or captures do not add up.
+            `provider_backing_break` is customer funds that no provider backs, reported by the ledger
+            (`ledger.provider_backing.broken`, ADR-020): a ledger-level shortfall, or a provider with negative
+            customer custody. It belongs to the tenant's system source `ledger:provider-backing`, has no run,
+            and `details` carries `ledger_id`, `break_kind`, `provider`, `asset` and `amount`. One unresolved
+            exception exists per break.
         details:
           type: object
           description: |
