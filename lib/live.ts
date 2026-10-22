@@ -870,3 +870,190 @@ export function listCoverageSnapshots(
     `/v1/ledgers/${encodeURIComponent(ledgerId)}/coverage-snapshots?limit=20`,
   );
 }
+
+// ---- Periods, adjustments, FX quotes, ledger transfers, audit log -------------
+
+export type PeriodStatus = "open" | "soft_closed" | "hard_closed";
+
+export interface ApiPeriod {
+  id: string;
+  ledger_id: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+  status: PeriodStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listPeriods(ledgerId: string): Promise<Page<ApiPeriod>> {
+  return apiFetch(`/v1/periods${queryString({ ledger_id: ledgerId, limit: 100 })}`);
+}
+
+export function createPeriod(body: {
+  ledger_id: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+}): Promise<ApiPeriod> {
+  return apiFetch("/v1/periods", { method: "POST", body });
+}
+
+export function transitionPeriod(
+  id: string,
+  status: PeriodStatus,
+): Promise<ApiPeriod> {
+  return apiFetch(`/v1/periods/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { status },
+  });
+}
+
+export type AdjustmentStatus =
+  | "pending"
+  | "approved"
+  | "executed"
+  | "rejected"
+  | "cancelled";
+
+export interface ApiAdjustment {
+  id: string;
+  ledger_id: string;
+  idempotency_key: string;
+  status: AdjustmentStatus;
+  request_hash: string;
+  maker: string;
+  reference?: string;
+  description?: string;
+  effective_at: string;
+  adjusts_period_id: string | null;
+  postings: ApiPosting[];
+  approvals: Array<{ approver: string; request_hash: string; approved_at: string }>;
+  transaction_id: string | null;
+  created_at: string;
+}
+
+export function listAdjustments(
+  ledgerId: string,
+  status?: AdjustmentStatus,
+): Promise<Page<ApiAdjustment>> {
+  return apiFetch(
+    `/v1/adjustment-requests${queryString({ ledger_id: ledgerId, status, limit: 100 })}`,
+  );
+}
+
+export function createAdjustment(body: {
+  ledger_id: string;
+  idempotency_key: string;
+  effective_at: string;
+  adjusts_period_id?: string;
+  reference?: string;
+  description?: string;
+  postings: ApiPosting[];
+}): Promise<ApiAdjustment> {
+  return apiFetch("/v1/adjustment-requests", { method: "POST", body });
+}
+
+export function actOnAdjustment(
+  id: string,
+  action: "approve" | "reject" | "cancel" | "execute",
+  request_hash?: string,
+): Promise<ApiAdjustment | ApiTransaction> {
+  return apiFetch(`/v1/adjustment-requests/${encodeURIComponent(id)}/${action}`, {
+    method: "POST",
+    ...(action === "approve" ? { body: { request_hash } } : {}),
+  });
+}
+
+export interface ApiFxQuote {
+  id: string;
+  base_asset: string;
+  quote_asset: string;
+  rate: string;
+  source: string;
+  quoted_at: string;
+  expires_at: string;
+}
+
+export function createFxQuote(body: {
+  base_asset: string;
+  quote_asset: string;
+  rate: string;
+  source: string;
+  expires_at: string;
+}): Promise<ApiFxQuote> {
+  return apiFetch("/v1/fx-quotes", { method: "POST", body });
+}
+
+export function getFxQuote(id: string): Promise<ApiFxQuote> {
+  return apiFetch(`/v1/fx-quotes/${encodeURIComponent(id)}`);
+}
+
+export interface TransferSideInput {
+  ledger_id: string;
+  due_account_id: string;
+  postings: ApiPosting[];
+}
+
+export interface ApiLedgerTransfer {
+  id: string;
+  idempotency_key: string;
+  reference?: string;
+  source: { ledger_id: string; due_account_id: string; transaction: ApiTransaction };
+  target: { ledger_id: string; due_account_id: string; transaction: ApiTransaction };
+  created_at: string;
+}
+
+export function createLedgerTransfer(body: {
+  idempotency_key: string;
+  reference?: string;
+  source: TransferSideInput;
+  target: TransferSideInput;
+  fx?: { quote_id: string; account_id: string };
+}): Promise<ApiLedgerTransfer> {
+  return apiFetch("/v1/ledger-transfers", { method: "POST", body });
+}
+
+export function getLedgerTransfer(id: string): Promise<ApiLedgerTransfer> {
+  return apiFetch(`/v1/ledger-transfers/${encodeURIComponent(id)}`);
+}
+
+export interface ApiAuditEntry {
+  id: number;
+  occurred_at: string;
+  actor: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  request_id?: string;
+  chain_seq: number;
+  prev_hash: string;
+  entry_hash: string;
+}
+
+export interface AuditFilters {
+  from?: string;
+  to?: string;
+  action?: string;
+  resource_type?: string;
+  resource_id?: string;
+}
+
+export function listAuditLog(
+  filters: AuditFilters,
+  cursor?: string,
+): Promise<Page<ApiAuditEntry>> {
+  return apiFetch(`/v1/audit-log${queryString({ ...filters, limit: 50, cursor })}`);
+}
+
+export interface ApiAuditVerification {
+  ok: boolean;
+  head: { chain_seq: number; entry_hash: string; occurred_at: string | null };
+  breaks: Array<{ chain_seq: number; problem: string; stored: string; expected: string }>;
+}
+
+export function verifyAuditLog(): Promise<ApiAuditVerification> {
+  return apiFetch("/v1/audit-log/verify");
+}
