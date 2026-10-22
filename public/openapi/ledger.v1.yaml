@@ -1481,6 +1481,11 @@ paths:
       operationId: listAccountEntries
       tags: [Accounts]
       summary: List the postings that hit an account
+      description: |
+        On a parent account (one with sub-accounts under its path) the list
+        covers the postings of its whole subtree. `metadata_key` and
+        `metadata_value` keep only the postings of transactions whose metadata
+        has exactly that pair.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -1490,6 +1495,8 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/AssetCode'
+        - $ref: '#/components/parameters/MetadataKey'
+        - $ref: '#/components/parameters/MetadataValue'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -1698,6 +1705,16 @@ paths:
       operationId: listTransactions
       tags: [Transactions]
       summary: List transactions
+      description: |
+        Filters combine with AND. `account_id` keeps the transactions with a
+        posting on that account or, for a parent account, anywhere in its
+        subtree (404 if the account does not exist for the tenant).
+        `metadata_key` + `metadata_value` keep the transactions whose
+        metadata has exactly that pair (exact string match; both or neither).
+        The pair goes through the write-side metadata rules, so a key or value
+        that looks like personal data is refused with `metadata_pii_detected`
+        (422) and never echoed. Pagination is the same keyset on
+        `(created_at, id)` with or without filters.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -1711,6 +1728,13 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/TransactionStatus'
+        - name: account_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/MetadataKey'
+        - $ref: '#/components/parameters/MetadataValue'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -3904,6 +3928,14 @@ paths:
       tags: [Reports]
       summary: Account statement
       description: |
+        `account_id` may be a parent account: the statement then covers its
+        whole subtree (a holder's history in one call), each entry carries the
+        `account_id` and `account_path` it hit, and balances are signed by the
+        parent's normal balance side. `metadata_key` + `metadata_value`
+        restrict opening, entries and closing to the transactions with exactly
+        that metadata pair, which is the balance of one order, employee or
+        category inside a shared account.
+
         Statement of one account over a period: opening balance per asset
         (aggregate of postings with `effective_at` strictly before `from`),
         entries ordered by `effective_at` ascending with a per-asset running
@@ -3935,6 +3967,8 @@ paths:
           schema:
             type: string
             format: date-time
+        - $ref: '#/components/parameters/MetadataKey'
+        - $ref: '#/components/parameters/MetadataValue'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -4109,6 +4143,20 @@ components:
       description: EdDSA JWT issued by the identity service (POST /v1/auth/token).
 
   parameters:
+    MetadataKey:
+      name: metadata_key
+      in: query
+      description: Metadata filter, used together with `metadata_value` (exact match).
+      schema:
+        type: string
+        maxLength: 64
+    MetadataValue:
+      name: metadata_value
+      in: query
+      description: Value `metadata_key` must have, exactly.
+      schema:
+        type: string
+        maxLength: 500
     SignatureApiKey:
       name: X-Api-Key
       in: header
@@ -6235,12 +6283,18 @@ components:
 
     StatementEntry:
       type: object
-      required: [id, transaction_id, direction, amount, effective_at, running_balance]
+      required: [id, transaction_id, account_id, account_path, direction, amount, effective_at, running_balance]
       properties:
         id:
           type: string
           format: uuid
           description: Posting id.
+        account_id:
+          type: string
+          format: uuid
+          description: Account the posting hit (a leaf of the subtree on a parent's statement).
+        account_path:
+          type: string
         transaction_id:
           type: string
           format: uuid
