@@ -588,6 +588,51 @@
               }
             },
             {
+              "name": "FX position and valuation in a reporting asset",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/fx-position",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "fx-position"
+                  ],
+                  "query": [
+                    {
+                      "key": "reporting_asset",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Asset to value in; required when `quote_id` is given."
+                    },
+                    {
+                      "key": "quote_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": "An FX quote to value with. Repeat the parameter (up to 20)."
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Per asset of the ledger: `conversion_net`, the posted balance\n(debits - credits) of the conversion accounts its FX posting groups\ncite (the open position: negative is a short, positive a long), and the\n`customer_assets` and `customer_liabilities` of `GET\n/v1/ledgers/{id}/coverage`. All amounts are minor units of the row's\nasset; the report is as of now.\n\n**Valuation.** With `reporting_asset` and one or more `quote_id` (FX\nquotes of the tenant, see `POST /v1/fx-quotes`), each row also carries\n`value`: the three amounts converted to the reporting asset with the\nquote that prices that pair, in either direction, rounded half to even.\n`value.quote_id` names the quote used and is absent for the reporting\nasset itself. `total` sums the valued rows, so \"customer funds in USD\"\nis `total.customer_assets`. An asset that no given quote reaches is in\n`unvalued` and left out of the total. Two quotes for the same pair are\na 400. A quote is used whatever its `expires_at`: the client chose it,\nand `quotes` echoes them so the report says which rates it used.\n\nIt is a derived report: it books nothing and sources no rates."
+              }
+            },
+            {
               "name": "Customer-funds coverage per asset",
               "request": {
                 "method": "GET",
@@ -2968,6 +3013,50 @@
               }
             },
             {
+              "name": "Consolidated trial balance",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/trial-balance/consolidated",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "trial-balance",
+                    "consolidated"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Repeat the parameter, once per ledger."
+                    },
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    }
+                  ]
+                },
+                "description": "The trial balances of several ledgers of the tenant added together,\nwith the due accounts of the tenant's ledger transfers\n(`POST /v1/ledger-transfers`) taken out: what one ledger owes another\nis not owed to anyone outside. `rows` are the remaining accounts, each\nwith its `ledger_id`; `eliminated` are the due accounts taken out;\n`totals` sum `rows` per asset. When both sides of every transfer are\namong the ledgers, the totals are balanced; a transfer whose other side\nis left out shows as `balanced: false`.\n\nName 2 to 20 different ledgers with a repeated `ledger_id`. `from` and\n`as_of` work as in `GET /v1/trial-balance`. Nothing is converted:\nassets stay apart."
+              }
+            },
+            {
               "name": "Provider (counterparty) positions",
               "request": {
                 "method": "GET",
@@ -2985,6 +3074,14 @@
                   "path": [
                     "v1",
                     "provider-positions"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only the accounts of this ledger (404 when it does not exist). Omit"
+                    }
                   ]
                 },
                 "description": "Net position against every counterparty (payment provider, bank,\nprocessor), aggregated from the running `account_balances` of asset-\nand liability-type accounts — never from postings.\n\nConvention: an account belongs to a provider when its name/path\ncontains a `provider` segment followed by the provider name —\n`assets:provider:acmepay:usd` or `liabilities/provider/nordpay/mxn`\n(both `:` and `/` work as separators) — or when the account carries\n`metadata.provider` as an explicit override (it wins over the path).\n\n`net` is the signed sum of `posted_debits - posted_credits` across\nthe provider's accounts per asset: positive means the counterparty\nholds value for us (`they_owe_us`), negative means we owe them\n(`we_owe_them`), zero is `flat`.\n\nTenants that do not follow the convention get an empty `data` array\nplus a `hint` explaining how to opt in."
