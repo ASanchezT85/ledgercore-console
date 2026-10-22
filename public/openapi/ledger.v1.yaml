@@ -1220,6 +1220,101 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/providers/{provider}/holds:
+    post:
+      operationId: createProviderHold
+      tags: [Ledgers, Holds]
+      summary: Reserve a provider's liquidity for a dispatch
+      description: |
+        Creates a hold on `custody(P)`, the provider's custody account, so a
+        payout or dispatch reserves the provider's liquidity in the same
+        transaction as the stage that names it (ADR-020 section 3). It is
+        `POST /v1/holds` with the account chosen by the ledger: the hold, its
+        idempotency, expiry, events and `movement` tag are the same. Requires
+        the `ledger:write` scope.
+
+        Choosing `P` (preferred provider, cheapest, largest balance) stays in
+        the tenant's router; the ledger only checks that `P` can pay. The hold
+        is refused with 422 `insufficient_funds` when `P`'s available custody
+        (posted minus active holds) is below the amount, whatever the account's
+        `allow_negative`, and with 422 `account_inactive` while `P` is frozen
+        (`POST /v1/ledgers/{id}/providers/{provider}/freeze`). Concurrent
+        dispatches serialize on the custody balance row: they never reserve
+        more than `P` holds.
+
+        `custody(P)` is the one leaf `asset` account of the ledger that
+        identifies `P` (`metadata.provider`, or the `provider` path segment;
+        names compare in lower case), with `fund_class: customer` and
+        `liquidity: liquid`: the accounts `GET /v1/ledgers/{id}/provider-exposure`
+        counts as custody. A provider with none is 404; one with several is 409,
+        and the client names the account with `POST /v1/holds`. Send neither
+        `account_id` nor `ledger_id`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: provider
+          in: path
+          required: true
+          description: Provider name as in `metadata.provider` or the `provider` path segment (case-insensitive).
+          schema:
+            type: string
+            example: bank_x
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderHoldCreate'
+            examples:
+              payout:
+                value:
+                  idempotency_key: dispatch-2026-0042
+                  amount: { asset: USD, amount: '40000' }
+                  movement: { id: 3f6c1c52-0a7e-7b1d-9d34-5a8e2b7c9d10, stage: dispatch }
+      responses:
+        '201':
+          description: Hold created on the provider's custody account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hold'
+        '200':
+          description: Idempotent replay — the hold already existed for this idempotency key.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hold'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The provider has more than one custody account (`conflict`); the
+            idempotency key was used with another payload
+            (`idempotency_conflict`); or the movement is past the stage
+            (`movement_stage_invalid`) or has ended (`movement_closed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            The provider's available custody is below the amount
+            (`insufficient_funds`), or its custody is frozen or closed
+            (`account_inactive`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/ledgers/{id}/providers/{provider}/unfreeze:
     post:
       operationId: unfreezeProvider
@@ -5032,6 +5127,31 @@ components:
             usual stage is `authorize` for a holder's reservation, or
             `dispatch` for the liquidity set aside for a payout. Judged like a
             transaction's `movement`; part of the idempotency fingerprint.
+
+    ProviderHoldCreate:
+      type: object
+      required: [idempotency_key, amount]
+      additionalProperties: false
+      description: |
+        `HoldCreate` without `account_id` and `ledger_id`: the route names the
+        ledger and the provider, and the ledger picks the custody account.
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+        amount:
+          $ref: '#/components/schemas/Money'
+        expires_at:
+          type: string
+          format: date-time
+          description: When the hold auto-releases; defaults to 7 days.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        movement:
+          allOf:
+            - $ref: '#/components/schemas/MovementRef'
+          description: Usually stage `dispatch` (ADR-019).
 
     Hold:
       type: object
