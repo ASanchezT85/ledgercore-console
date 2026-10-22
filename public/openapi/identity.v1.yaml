@@ -1358,6 +1358,115 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/backoffice/integrations:
+    get:
+      operationId: listIntegrations
+      tags: [BackOffice]
+      summary: Integration credentials and their readiness
+      description: |
+        **Platform operators only.** One entry per integration (`smtp`, `sms`,
+        `ipinfo`) and environment, with the keys its contract asks for, whether
+        each one is configured, where it comes from (`database`, or
+        `environment` for the `LEDGERCORE_<PROVIDER>_<KEY>` fallback, which
+        applies to the environment named by `LEDGERCORE_INTEGRATION_ENV`,
+        `live` by default) and who rotated it and when. `ready` is true when
+        every required key is configured. **No response of this API ever
+        carries a secret value.**
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: The integrations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Integration'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/backoffice/integrations/{provider}/{environment}/{name}:
+    put:
+      operationId: setIntegrationSecret
+      tags: [BackOffice]
+      summary: Store or rotate one integration key
+      description: |
+        Platform operators only. The value is sealed with the master key
+        (AES-256-GCM, bound to provider, environment and name) before it is
+        stored, and is not returned. `201` for a first write, `200` for a
+        rotation. The audit log records `integration_secret.set` or
+        `integration_secret.rotate` with the operator as actor and no value.
+        `503` when the service has no `LEDGERCORE_MASTER_KEY`.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IntegrationProvider'
+        - $ref: '#/components/parameters/IntegrationEnvironment'
+        - $ref: '#/components/parameters/IntegrationKeyName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secret]
+              additionalProperties: false
+              properties:
+                secret:
+                  type: string
+                  minLength: 1
+                  maxLength: 4096
+                  writeOnly: true
+      responses:
+        '200':
+          description: Rotated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationSecretRef'
+        '201':
+          description: Stored for the first time.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationSecretRef'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503':
+          description: The service has no master key (`service_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      operationId: deleteIntegrationSecret
+      tags: [BackOffice]
+      summary: Remove one integration key from the database
+      description: |
+        Platform operators only. The environment fallback, if any, applies
+        again. Audited as `integration_secret.delete`.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/IntegrationProvider'
+        - $ref: '#/components/parameters/IntegrationEnvironment'
+        - $ref: '#/components/parameters/IntegrationKeyName'
+      responses:
+        '204':
+          description: Removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/platform/operators:
     post:
       operationId: invitePlatformOperator
@@ -1661,6 +1770,27 @@ components:
       schema:
         type: string
         format: uuid
+    IntegrationProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [smtp, sms, ipinfo]
+    IntegrationEnvironment:
+      name: environment
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [sandbox, live]
+    IntegrationKeyName:
+      name: name
+      in: path
+      required: true
+      description: A key of the integration's contract (smtp - host, port, from, username, password; sms - account_sid, auth_token, from_number; ipinfo - token).
+      schema:
+        type: string
     PageLimit:
       name: limit
       in: query
@@ -2209,6 +2339,33 @@ components:
           type: string
           format: date-time
 
+    Integration:
+      type: object
+      required: [provider, environment, ready, keys]
+      properties:
+        provider: { type: string, enum: [smtp, sms, ipinfo] }
+        environment: { type: string, enum: [sandbox, live] }
+        ready: { type: boolean, description: Every required key is configured. }
+        keys:
+          type: array
+          items:
+            type: object
+            required: [name, required, configured]
+            properties:
+              name: { type: string }
+              required: { type: boolean }
+              configured: { type: boolean }
+              source: { type: string, enum: [database, environment] }
+              rotated_at: { type: string, format: date-time }
+              rotated_by: { type: string, description: 'Actor, e.g. user:<id>.' }
+    IntegrationSecretRef:
+      type: object
+      required: [provider, environment, name, configured]
+      properties:
+        provider: { type: string }
+        environment: { type: string }
+        name: { type: string }
+        configured: { type: boolean }
     ReviewAccount:
       allOf:
         - $ref: '#/components/schemas/Onboarding'
