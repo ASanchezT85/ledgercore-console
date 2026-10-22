@@ -3550,6 +3550,63 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/movements/{id}/close:
+    post:
+      operationId: closeMovement
+      tags: [Movements]
+      summary: Close a movement
+      description: |
+        Requires `ledger:write`. Makes the movement terminal with `outcome`
+        (ADR-019 §2, §4). `completed` needs the movement to have reached
+        `captured`; `failed` and `cancelled` are accepted from any status that
+        has not ended. In the same database transaction the close:
+
+        - releases the movement's still-active holds (`ledger.hold.released`
+          with `reason: movement_closed`), so no reservation outlives its
+          operation;
+        - computes the movement's transit per asset and, when it is not zero,
+          records it as `transit_residual`. The close is **not refused** for a
+          residual: the outcome is a fact. Only writes at stage `correct` can
+          bring it back to zero (see `MovementRef`);
+        - emits `ledger.movement.closed`, with the residual (empty when none).
+
+        Idempotent by outcome, so it takes no idempotency key: closing again
+        with the same outcome returns the movement unchanged; another outcome is
+        409 `movement_closed`. A tagged write can also close its movement in the
+        same call with `movement.close`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseMovementRequest'
+            example:
+              outcome: completed
+      responses:
+        '200':
+          description: The movement, closed (or already closed with that outcome).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `movement_closed`: the movement already ended with another outcome.
+            `movement_stage_invalid`: `completed` on a movement that never
+            reached `captured`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/trial-balance:
     get:
       operationId: getTrialBalance
@@ -5641,12 +5698,13 @@ components:
         Where a movement stands. It starts at `open` and only moves forward
         (`authorized`, `captured`, `dispatched`; a stage may be skipped) to one
         of the terminal statuses `completed`, `failed` or `cancelled`. Writes
-        tagged with the movement move it forward (see `MovementRef`); in this
-        version nothing ends it yet, so it stays at `dispatched` at most.
+        tagged with the movement move it forward (see `MovementRef`); a close
+        (`POST /v1/movements/{id}/close`, or `movement.close` on a write) ends
+        it, and a terminal status is final.
 
     MovementStage:
       type: string
-      enum: [authorize, capture, dispatch, complete, fail]
+      enum: [authorize, capture, dispatch, complete, fail, correct]
       description: |
         The step of a movement a write belongs to (ADR-019). `authorize`,
         `capture` and `dispatch` are ordered: a write is accepted while the
@@ -5655,9 +5713,13 @@ components:
         stage (two partial captures) and stages may be skipped (a wallet to
         wallet transfer goes straight to `capture`). `complete` and `fail` tag
         the writes that pay out, book components or undo; they are accepted
-        while the movement has not ended and do not change its status. Which
-        ledger object each stage creates is the template of the flow, not a rule
-        the ledger imposes.
+        while the movement has not ended and do not change its status. `correct`
+        is the one stage a closed movement accepts, and only while it holds a
+        `transit_residual`: it books what brings the residual back to zero, and
+        needs `movement.reason`. It is 409 `movement_stage_invalid` on a
+        movement that has not ended and 409 `movement_closed` on one with no
+        residual. Hold writes never take it. Which ledger object each stage
+        creates is the template of the flow, not a rule the ledger imposes.
 
     MovementRef:
       type: object
@@ -5669,6 +5731,11 @@ components:
         tenant (404) and in the write's ledger (400). A movement that ended is
         409 `movement_closed`; a stage the movement has passed is 409
         `movement_stage_invalid`.
+
+        `close` and `reason` are part of the request (and of its idempotency
+        fingerprint), not stored on the write: `GET` returns only `id` and
+        `stage`. Hold writes (create, capture, release) take neither, nor stage
+        `correct` (400).
       properties:
         id:
           type: string
@@ -5676,6 +5743,28 @@ components:
           description: The movement (`POST /v1/movements`).
         stage:
           $ref: '#/components/schemas/MovementStage'
+        close:
+          type: string
+          enum: [completed, failed, cancelled]
+          description: |
+            Close the movement with this outcome right after the write, in the
+            same database transaction, exactly as `POST /v1/movements/{id}/close`
+            would. Not with stage `correct`. On a posting group the close runs
+            once, after the last member.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Required with stage `correct`, refused with any other. Written to the `movement.correct` audit row.
+
+    CloseMovementRequest:
+      type: object
+      required: [outcome]
+      additionalProperties: false
+      properties:
+        outcome:
+          type: string
+          enum: [completed, failed, cancelled]
 
     OpenMovementRequest:
       type: object
@@ -5708,7 +5797,7 @@ components:
 
     Movement:
       type: object
-      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, metadata]
+      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, transit_residual, metadata]
       properties:
         id:
           type: string
@@ -5738,6 +5827,16 @@ components:
           type: [string, 'null']
           format: date-time
           description: Set when the movement reaches a terminal status.
+        transit_residual:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/Money'
+          description: |
+            The transit, per asset, the movement still held when it closed, and
+            still holds after any `correct` writes since. `null` when there is
+            none: a terminal movement with `transit_residual: null` has zero
+            transit in every asset (I-14). Always `null` while the movement is
+            open.
         metadata:
           $ref: '#/components/schemas/Metadata'
 
