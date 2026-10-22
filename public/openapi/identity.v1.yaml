@@ -18,8 +18,16 @@ info:
     state-changing session request also needs the `X-CSRF-Token` header. The
     session mints the same 15-minute JWT the services already accept
     (`POST /v1/auth/session/token`). These endpoints are for the console's
-    server: a request with an `Origin` header is refused. API keys remain the
-    credential for integrations.
+    server: a request with an `Origin` header is refused.
+
+    **API credentials (key + secret).** Integrations authenticate with an
+    `api_key` (public) and an `api_secret` (shown once, stored encrypted) and
+    sign every request with `X-Api-Key`, `X-Timestamp`, `X-Nonce` and
+    `X-Signature` (see ADR-023 and `docs/api-design.md`). The signature is
+    verified by identity on behalf of the other services; this API only issues,
+    rotates and revokes the credentials. The old single-value `lk_` keys keep
+    working until **2027-02-01** and answer with `Deprecation` / `Sunset`
+    headers.
 
     Issued tokens are EdDSA (Ed25519) JWTs with these claims:
       - `tenant_id`: tenant UUID
@@ -38,6 +46,7 @@ servers:
 tags:
   - name: Tenants
   - name: ApiKeys
+  - name: ApiCredentials
   - name: Auth
   - name: Console
   - name: Users
@@ -192,12 +201,189 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/AdminDisabled' }
 
+  /v1/api-credentials:
+    get:
+      operationId: listApiCredentials
+      tags: [ApiCredentials]
+      summary: List the tenant's API credentials
+      description: Owners and admins only. Secrets are never returned after creation.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: Credentials of the caller's tenant, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiCredential'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createApiCredential
+      tags: [ApiCredentials]
+      summary: Create an API credential (key + secret)
+      description: |
+        Owners and admins only. The `api_secret` is returned **exactly once**,
+        in this response (`Cache-Control: no-store`); only its encrypted form
+        is stored. `scopes` is required: nothing is granted by default.
+        A sandbox tenant can only create `sandbox` credentials. Credentials
+        are sealed to their environment: a `sandbox` credential is refused by a
+        production deployment (`environment_mismatch`).
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCredentialCreate'
+            examples:
+              backend:
+                value:
+                  environment: live
+                  name: payments-backend
+                  scopes: [ledger:read, ledger:write]
+                  expires_in_days: 180
+      responses:
+        '201':
+          description: Credential created; includes the one-time secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiCredentialWithSecret'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/api-credentials/{id}/rotate:
+    post:
+      operationId: rotateApiCredential
+      tags: [ApiCredentials]
+      summary: Rotate a credential with an overlap window
+      description: |
+        Issues a successor (new key and secret; same name, environment and
+        scopes) and ends the old credential's term at `now + overlap_seconds`
+        (default 24 h, at most 7 days), so both pairs work while clients
+        deploy the new one. Rotating never extends the old term. Only an
+        active, not yet rotated credential can be rotated. The new
+        `api_secret` is shown once. The body is optional.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCredentialRotate'
+      responses:
+        '201':
+          description: Successor created; includes the one-time secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiCredentialWithSecret'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/api-credentials/{id}:
+    delete:
+      operationId: revokeApiCredential
+      tags: [ApiCredentials]
+      summary: Revoke a credential
+      description: |
+        Immediate: the next signed request is `credential_revoked`. Revoking
+        twice is a no-op (204).
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Credential revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/tenants/{id}/api-credentials:
+    post:
+      operationId: adminCreateApiCredential
+      tags: [ApiCredentials]
+      summary: Create an API credential for a tenant (admin)
+      description: |
+        Bootstrap path for tenants without a console user yet. Same body and
+        one-time secret as `POST /v1/api-credentials`.
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiCredentialCreate'
+      responses:
+        '201':
+          description: Credential created; includes the one-time secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiCredentialWithSecret'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminDisabled' }
+
+  /v1/tenants/{id}/api-credentials/{credential_id}:
+    delete:
+      operationId: adminRevokeApiCredential
+      tags: [ApiCredentials]
+      summary: Revoke a tenant's credential (admin)
+      description: Incident response, revokes immediately. A no-op if already revoked.
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: credential_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Credential revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminDisabled' }
+
   /v1/auth/token:
     post:
       operationId: issueToken
       tags: [Auth]
-      summary: Exchange an API key for a JWT
+      deprecated: true
+      summary: Exchange an old API key for a JWT (deprecated)
       description: |
+        **Deprecated, retired on 2027-02-01.** Replace it with an API
+        credential (key + secret) and sign every request (ADR-023). Until the
+        sunset date every response carries `Deprecation: true` and
+        `Sunset: Mon, 01 Feb 2027 00:00:00 GMT`; from that date, or earlier
+        when the operator sets `LEDGERCORE_LEGACY_API_KEYS=deny`, this endpoint
+        answers 401 `legacy_credential_retired`.
+
         Exchanges the plaintext API key secret (the `lk_...` string returned
         on key creation) for a short-lived EdDSA JWT. Every failure mode —
         unknown key, revoked key, suspended tenant — answers the same 401
@@ -222,6 +408,13 @@ paths:
       responses:
         '200':
           description: Short-lived EdDSA JWT (TTL 15 minutes).
+          headers:
+            Deprecation:
+              schema: { type: string, const: 'true' }
+              description: Always present; this exchange is deprecated.
+            Sunset:
+              schema: { type: string }
+              description: HTTP date after which old API keys stop working.
           content:
             application/json:
               schema:
@@ -1059,7 +1252,10 @@ components:
                 account_not_postable, parent_account_has_activity,
                 period_closed, approval_required, self_approval,
                 request_hash_mismatch, rate_limited,
-                service_unavailable, internal.
+                service_unavailable, internal, signature_missing,
+                signature_invalid, timestamp_skew, nonce_reused,
+                credential_expired, credential_revoked,
+                environment_mismatch, legacy_credential_retired.
             message:
               type: string
             request_id:
@@ -1169,6 +1365,101 @@ components:
             secret:
               type: string
               description: Full plaintext key (`lk_<env>_...`). Shown exactly once; store it securely.
+
+    ApiCredentialCreate:
+      type: object
+      required: [environment, name, scopes]
+      additionalProperties: false
+      properties:
+        environment:
+          $ref: '#/components/schemas/Environment'
+        name:
+          type: string
+          maxLength: 255
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ledger:read, ledger:write, ledger:frozen_override, reconciliation:read, reconciliation:write, webhooks:read, webhooks:write]
+          description: Required; no scope is granted by default and the wildcard is never available.
+        expires_in_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Term of the credential. Default 180.
+
+    ApiCredentialRotate:
+      type: object
+      additionalProperties: false
+      properties:
+        overlap_seconds:
+          type: integer
+          minimum: 0
+          maximum: 604800
+          description: How long the old credential keeps working. Default 86400 (24 h); 0 means the default.
+        expires_in_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Term of the successor. Default 180.
+
+    ApiCredential:
+      type: object
+      required: [id, tenant_id, environment, name, api_key, scopes, allowed_cidrs, status, created_by, created_at, expires_at, revoked_at, rotated_to]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        environment:
+          $ref: '#/components/schemas/Environment'
+        name:
+          type: string
+        api_key:
+          type: string
+          description: Public key id, `ak_<env>_<20 chars>`. Sent in `X-Api-Key`.
+        scopes:
+          type: array
+          items:
+            type: string
+        allowed_cidrs:
+          type: array
+          items:
+            type: string
+          description: Reserved for the IP allow-list (roadmap 7.7). Stored, not enforced yet; empty means any address.
+        status:
+          type: string
+          enum: [active, expired, revoked]
+        created_by:
+          type: string
+          description: '`user:<id>` or `admin`.'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: End of the term; after a rotation, the end of the overlap window.
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        rotated_to:
+          type: [string, 'null']
+          format: uuid
+          description: The successor, once rotated.
+
+    ApiCredentialWithSecret:
+      allOf:
+        - $ref: '#/components/schemas/ApiCredential'
+        - type: object
+          required: [api_secret]
+          properties:
+            api_secret:
+              type: string
+              description: '`as_<env>_<48 chars>`. Shown exactly once. It never travels in a request; it only computes the signature.'
 
     Role:
       type: string
