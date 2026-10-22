@@ -49,6 +49,7 @@ tags:
   - name: ApiCredentials
   - name: Auth
   - name: Console
+  - name: Onboarding
   - name: Users
 
 paths:
@@ -235,6 +236,13 @@ paths:
         A sandbox tenant can only create `sandbox` credentials. Credentials
         are sealed to their environment: a `sandbox` credential is refused by a
         production deployment (`environment_mismatch`).
+
+        The account's onboarding status gates the environment: `sandbox`
+        credentials need a verified account (status `sandbox` or later),
+        `live` ones need an `approved` account. Otherwise `403 forbidden` with
+        `account_not_verified` / `account_not_approved` in the message. A live
+        credential of an account that is no longer approved (suspended) is
+        refused at signature verification too.
       security:
         - consoleSession: []
           csrfToken: []
@@ -903,6 +911,228 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/onboarding/accounts:
+    post:
+      operationId: registerAccount
+      tags: [Onboarding]
+      summary: Sign up a company or a person
+      description: |
+        Public (no session), only when the deployment sets `LEDGERCORE_ONBOARDING=true`.
+        Validates the form **on the server**, then creates the tenant, its owner
+        (already active, with the given password under the same policy as an
+        invitation) and the onboarding record in one transaction, and sends a
+        6-digit code to the email. The account starts at `registered`; **no
+        credentials of any environment exist until it is verified** (sandbox) and
+        approved by the back office (live). There is no KYC: the data is for the
+        back office to read, not a verified identity. The owner may sign in right
+        away, and must enrol an authenticator like everyone.
+
+        An email that already belongs to a user answers `409 conflict`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountSignup'
+      responses:
+        '201':
+          description: Account created; the verification code was emailed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tenant_id, status]
+                properties:
+                  tenant_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/AccountStatus'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: That email already belongs to a user (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/onboarding/email/verify:
+    post:
+      operationId: verifyAccountEmail
+      tags: [Onboarding]
+      summary: Verify the email with the code
+      description: |
+        Public. A code lives 10 minutes, works once and dies after 5 wrong
+        guesses (ask for another with `/v1/onboarding/email/resend`). Every
+        failure — unknown address, wrong, expired, used or exhausted code —
+        answers the same `400 validation_failed`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+                code:
+                  type: string
+                  description: Six digits.
+      responses:
+        '204':
+          description: Verified; the account advanced as far as its facts allow.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/onboarding/email/resend:
+    post:
+      operationId: resendAccountEmailCode
+      tags: [Onboarding]
+      summary: Ask for a new email code
+      description: |
+        Public. Always answers `202`, whether or not the address belongs to an
+        unverified account and whether or not the limit refused: at most one
+        code per 60 seconds and 5 per hour per channel. A new code revokes the
+        previous one.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email:
+                  type: string
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: accepted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/onboarding:
+    get:
+      operationId: getOnboarding
+      tags: [Onboarding]
+      summary: Where the account stands
+      description: |
+        The tenant's onboarding record: its status, which of the three
+        verifications are done, and the data given at signup (`profile` is
+        `null` for tenants that did not sign up through the form). After a
+        rejection, `decision_reason` says why.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: The onboarding record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Onboarding'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/onboarding/phone/send:
+    post:
+      operationId: sendPhoneCode
+      tags: [Onboarding]
+      summary: Text a verification code to the phone given at signup
+      description: |
+        Owners only. Same code rules as the email (10 minutes, 5 attempts) and
+        the same limits: one per 60 seconds, 5 per hour (`429` with
+        `Retry-After`). Until an SMS provider exists the text is written to the
+        service log.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: accepted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+
+  /v1/onboarding/phone/verify:
+    post:
+      operationId: verifyPhone
+      tags: [Onboarding]
+      summary: Verify the phone with the code
+      description: |
+        Owners only. When email, authenticator and phone are all verified the
+        account becomes `sandbox`: sandbox credentials can be created from then on.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFactorCode'
+      responses:
+        '204':
+          description: Verified.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/onboarding/review:
+    post:
+      operationId: requestReview
+      tags: [Onboarding]
+      summary: Ask the back office to approve the account
+      description: |
+        Owners only. A `sandbox` account (or a `rejected` one, to try again)
+        becomes `under_review`; any other status answers `409 conflict`. Only
+        an approval by the LedgerCore back office makes live credentials possible.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      responses:
+        '202':
+          description: The account is under review.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: under_review
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The account is not in a status that allows a review request (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/users:
     get:
       operationId: listUsers
@@ -1504,7 +1734,7 @@ components:
 
     Session:
       type: object
-      required: [user, tenant, environment, scopes, csrf_token, expires_at]
+      required: [user, tenant, environment, account_status, scopes, csrf_token, expires_at]
       properties:
         user:
           $ref: '#/components/schemas/User'
@@ -1521,6 +1751,8 @@ components:
               type: string
         environment:
           $ref: '#/components/schemas/Environment'
+        account_status:
+          $ref: '#/components/schemas/AccountStatus'
         scopes:
           type: array
           items:
@@ -1531,6 +1763,103 @@ components:
           type: string
           format: date-time
           description: Absolute end of the session (12 hours after login).
+
+    AccountStatus:
+      type: string
+      enum: [registered, email_verified, mfa_enrolled, sandbox, under_review, approved, rejected, suspended]
+      description: |
+        `registered → email_verified → mfa_enrolled → sandbox → under_review →
+        approved | rejected` (a rejected account can ask again), and
+        `approved ⇄ suspended`. The first four are driven by facts — email code,
+        authenticator, phone code — and may happen in any order. `sandbox`
+        credentials exist from `sandbox` on; `live` ones only when `approved`.
+
+    AccountProfile:
+      type: object
+      required: [kind, legal_name, tax_id, country, region, city, address_line, postal_code, phone]
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+          enum: [company, person]
+        legal_name:
+          type: string
+          description: Company name or the person's full name (2-255 characters).
+        registration_number:
+          type: string
+          description: Companies only; optional.
+        tax_id:
+          type: string
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 (case-insensitive on input; upper case in responses).
+          examples: [CL]
+        region:
+          type: string
+          description: State or province.
+        city:
+          type: string
+        address_line:
+          type: string
+        postal_code:
+          type: string
+          description: Checked and normalized for the country (generic rule where there is none).
+        website:
+          type: string
+          description: Optional http(s) address.
+        phone:
+          type: string
+          description: International format; spaces, dashes and parentheses are stripped.
+          examples: ['+56912345678']
+
+    AccountSignup:
+      type: object
+      required: [email, password, profile]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          description: 12-128 characters, not a common password, not the email.
+        profile:
+          $ref: '#/components/schemas/AccountProfile'
+
+    Onboarding:
+      type: object
+      required: [tenant_id, status, steps, profile, submitted_at, decided_at, status_changed_at]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        steps:
+          type: object
+          required: [email_verified, two_factor_enrolled, phone_verified]
+          properties:
+            email_verified:
+              type: boolean
+            two_factor_enrolled:
+              type: boolean
+            phone_verified:
+              type: boolean
+        profile:
+          oneOf:
+            - $ref: '#/components/schemas/AccountProfile'
+            - type: 'null'
+        submitted_at:
+          type: [string, 'null']
+          format: date-time
+        decided_at:
+          type: [string, 'null']
+          format: date-time
+        decision_reason:
+          type: string
+          description: The back office's reason, after a decision.
+        status_changed_at:
+          type: string
+          format: date-time
 
     TokenPassword:
       type: object
