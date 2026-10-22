@@ -4360,6 +4360,61 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/trial-balance/consolidated:
+    get:
+      operationId: getConsolidatedTrialBalance
+      tags: [Reports]
+      summary: Consolidated trial balance
+      description: |
+        The trial balances of several ledgers of the tenant added together,
+        with the due accounts of the tenant's ledger transfers
+        (`POST /v1/ledger-transfers`) taken out: what one ledger owes another
+        is not owed to anyone outside. `rows` are the remaining accounts, each
+        with its `ledger_id`; `eliminated` are the due accounts taken out;
+        `totals` sum `rows` per asset. When both sides of every transfer are
+        among the ledgers, the totals are balanced; a transfer whose other side
+        is left out shows as `balanced: false`.
+
+        Name 2 to 20 different ledgers with a repeated `ledger_id`. `from` and
+        `as_of` work as in `GET /v1/trial-balance`. Nothing is converted:
+        assets stay apart.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - name: ledger_id
+          in: query
+          required: true
+          description: Repeat the parameter, once per ledger.
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 2
+            maxItems: 20
+            items:
+              type: string
+              format: uuid
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: as_of
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: The consolidated trial balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsolidatedTrialBalance'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/provider-positions:
     get:
       operationId: listProviderPositions
@@ -4367,6 +4422,17 @@ paths:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
         - $ref: '#/components/parameters/SignatureNonce'
+        - name: ledger_id
+          in: query
+          required: false
+          description: |
+            Only the accounts of this ledger (404 when it does not exist). Omit
+            it for the consolidated position over every ledger of the tenant.
+            A provider that exists in two ledgers with different assets is one
+            row either way; filter by ledger to keep them apart.
+          schema:
+            type: string
+            format: uuid
       tags: [Reports]
       summary: Provider (counterparty) positions
       description: |
@@ -6994,6 +7060,59 @@ components:
                 pattern: '^-?[0-9]{1,19}$'
               balanced:
                 type: boolean
+
+    ConsolidatedTrialBalance:
+      type: object
+      required: [ledger_ids, as_of, rows, eliminated, totals]
+      properties:
+        ledger_ids:
+          type: array
+          items: { type: string, format: uuid }
+        from:
+          type: string
+          format: date-time
+        as_of:
+          type: string
+          format: date-time
+        rows:
+          type: array
+          items:
+            type: object
+            required: [ledger_id, account_id, account_name, account_type, asset, debits, credits, net]
+            properties:
+              ledger_id: { type: string, format: uuid }
+              account_id: { type: string, format: uuid }
+              account_name: { type: string }
+              account_type: { $ref: '#/components/schemas/AccountType' }
+              asset: { $ref: '#/components/schemas/AssetCode' }
+              debits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              credits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              net: { type: string, pattern: '^-?[0-9]{1,19}$' }
+        eliminated:
+          description: The due accounts of ledger transfers that were taken out of `rows`.
+          type: array
+          items:
+            type: object
+            required: [ledger_id, account_id, account_name, account_type, asset, debits, credits, net]
+            properties:
+              ledger_id: { type: string, format: uuid }
+              account_id: { type: string, format: uuid }
+              account_name: { type: string }
+              account_type: { $ref: '#/components/schemas/AccountType' }
+              asset: { $ref: '#/components/schemas/AssetCode' }
+              debits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              credits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              net: { type: string, pattern: '^-?[0-9]{1,19}$' }
+        totals:
+          type: array
+          items:
+            type: object
+            required: [asset, debits, credits, balanced]
+            properties:
+              asset: { $ref: '#/components/schemas/AssetCode' }
+              debits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              credits: { type: string, pattern: '^-?[0-9]{1,19}$' }
+              balanced: { type: boolean }
 
     AssetBalance:
       type: object
