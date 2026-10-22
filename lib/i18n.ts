@@ -254,6 +254,7 @@ const es = {
     errGeneric: "No se pudo completar la operación. Intenta de nuevo.",
     errInvalid: "Código incorrecto o ya usado. Espera al siguiente código de la app e inténtalo otra vez.",
     errInvalidRecovery: "Código de recuperación incorrecto o ya usado.",
+    errPasskey: "No se pudo verificar la passkey. Inténtalo otra vez o usa el código.",
     errLocked: "Demasiados intentos. Vuelve a intentar en {seconds} s.",
     signOut: "Cancelar y salir",
     enroll: {
@@ -284,6 +285,7 @@ const es = {
       recoveryLabel: "Código de recuperación",
       recoveryPlaceholder: "XXXXX-XXXXX",
       useRecovery: "Usar un código de recuperación",
+      usePasskey: "Usar una passkey",
       useApp: "Usar la app de autenticación",
       submit: "Verificar",
       busy: "Verificando…",
@@ -298,6 +300,8 @@ const es = {
     invalid: "Código incorrecto o ya usado. Espera el siguiente.",
     locked: "Demasiados intentos. Vuelve a intentarlo en unos minutos.",
     failed: "No se pudo verificar el código.",
+    usePasskey: "Usar una passkey",
+    passkeyFailed: "No se pudo verificar la passkey.",
   },
   register: {
     metaTitle: "Crear cuenta · LedgerCore",
@@ -788,6 +792,7 @@ const en: typeof es = {
     errGeneric: "Could not complete the operation. Please try again.",
     errInvalid: "Wrong or already used code. Wait for the next code in the app and try again.",
     errInvalidRecovery: "Wrong or already used recovery code.",
+    errPasskey: "The passkey could not be verified. Try again or use the code.",
     errLocked: "Too many attempts. Try again in {seconds} s.",
     signOut: "Cancel and sign out",
     enroll: {
@@ -818,6 +823,7 @@ const en: typeof es = {
       recoveryLabel: "Recovery code",
       recoveryPlaceholder: "XXXXX-XXXXX",
       useRecovery: "Use a recovery code",
+      usePasskey: "Use a passkey",
       useApp: "Use the authenticator app",
       submit: "Verify",
       busy: "Verifying…",
@@ -832,6 +838,8 @@ const en: typeof es = {
     invalid: "Wrong or already used code. Wait for the next one.",
     locked: "Too many attempts. Try again in a few minutes.",
     failed: "The code could not be checked.",
+    usePasskey: "Use a passkey",
+    passkeyFailed: "The passkey could not be verified.",
   },
   register: {
     metaTitle: "Create account · LedgerCore",

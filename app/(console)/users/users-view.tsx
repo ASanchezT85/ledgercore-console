@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { MailPlus, ShieldOff, UserCheck, UserX } from "lucide-react";
 import { DemoBadge } from "@/components/demo-badge";
 import { ErrorBanner, LoadingCard } from "@/components/live";
+import { PasskeysCard } from "@/components/passkeys-card";
 import { RecoveryCodes } from "@/components/recovery-codes";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -225,6 +226,7 @@ function LiveUsers() {
           </p>
         </Card>
         <SecurityCard />
+        <PasskeysCard />
       </>
     );
   }
@@ -407,6 +409,7 @@ function LiveUsers() {
       </Card>
 
       <SecurityCard />
+      <PasskeysCard />
     </>
   );
 }

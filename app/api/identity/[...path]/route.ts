@@ -30,6 +30,10 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^api-credentials\/[0-9a-f-]{36}\/ip-events$/i, methods: ["GET"] },
   { pattern: /^users\/[0-9a-f-]{36}\/2fa$/i, methods: ["DELETE"] },
   { pattern: /^auth\/2fa$/, methods: ["GET"] },
+  // Passkeys (WebAuthn), a second 2FA method next to TOTP.
+  { pattern: /^auth\/passkeys$/, methods: ["GET"] },
+  { pattern: /^auth\/passkeys\/(assertion|registration|registration\/finish)$/, methods: ["POST"] },
+  { pattern: /^auth\/passkeys\/[0-9a-f-]{36}$/i, methods: ["DELETE"] },
   // Onboarding (7.4): the public signup + email steps, and the session ones.
   { pattern: /^onboarding$/, methods: ["GET"] },
   { pattern: /^onboarding\/accounts$/, methods: ["POST"] },

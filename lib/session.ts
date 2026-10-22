@@ -356,6 +356,8 @@ export interface TwoFactorStatus {
   /** The user already has an authenticator: verify instead of enrol. */
   enabled: boolean;
   recovery_codes_remaining: number;
+  /** Live passkeys: the login prompt offers them when above zero. */
+  passkeys: number;
 }
 
 export interface Enrollment {
@@ -408,13 +410,17 @@ export async function confirmEnrollment(code: string): Promise<string[]> {
   return res.recovery_codes;
 }
 
-/** Proves the second factor with a TOTP code or a recovery code; the session becomes active. */
+/** Proves the second factor with a TOTP code, a recovery code or a passkey; the session becomes active. */
 export async function verifySecondFactor(
-  input: { code: string } | { recoveryCode: string },
+  input: { code: string } | { recoveryCode: string } | { passkey: true },
 ): Promise<void> {
   await twoFactorCall(
     "auth/2fa/verify",
-    "code" in input ? { code: input.code } : { recovery_code: input.recoveryCode },
+    "passkey" in input
+      ? await passkeyAnswer()
+      : "code" in input
+        ? { code: input.code }
+        : { recovery_code: input.recoveryCode },
   );
   memInfo = null;
   memToken = null;
@@ -426,6 +432,104 @@ export async function regenerateRecoveryCodes(code: string): Promise<string[]> {
   return res.recovery_codes;
 }
 
+// ---- Passkeys (WebAuthn) -----------------------------------------------------
+//
+// A second method next to TOTP. The browser does the cryptography
+// (PublicKeyCredential.*FromJSON / toJSON are the native JSON forms of the
+// ceremony); identity verifies. Adding one needs a fresh TOTP code.
+
+export interface Passkey {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** The user dismissed the browser's passkey prompt, or the authenticator failed. */
+export class PasskeyCancelled extends Error {
+  constructor() {
+    super("passkey_cancelled");
+    this.name = "PasskeyCancelled";
+  }
+}
+
+// The JSON helpers are new enough that older lib.dom typings lack them.
+interface PasskeyApi {
+  parseCreationOptionsFromJSON(o: unknown): CredentialCreationOptions["publicKey"];
+  parseRequestOptionsFromJSON(o: unknown): CredentialRequestOptions["publicKey"];
+}
+
+function passkeyApi(): PasskeyApi | null {
+  if (typeof window === "undefined" || !("PublicKeyCredential" in window)) return null;
+  const api = PublicKeyCredential as unknown as Partial<PasskeyApi>;
+  return api.parseCreationOptionsFromJSON && api.parseRequestOptionsFromJSON ? (api as PasskeyApi) : null;
+}
+
+/** Whether this browser can create and use passkeys. */
+export function passkeysSupported(): boolean {
+  return passkeyApi() !== null;
+}
+
+/** Asks identity for a challenge and has the browser sign it. PasskeyCancelled if the user backs out. */
+async function passkeyAnswer(): Promise<{ passkey: { challenge_id: string; credential: unknown } }> {
+  const api = passkeyApi();
+  if (!api) throw new PasskeyCancelled();
+  const csrf = memCsrf ?? (await twoFactorStatus()).csrf_token;
+  const ch = await identityFetch<{ challenge_id: string; options: unknown }>(
+    "POST",
+    "auth/passkeys/assertion",
+    {},
+    { csrfToken: csrf },
+  );
+  let cred: Credential | null;
+  try {
+    cred = await navigator.credentials.get({ publicKey: api.parseRequestOptionsFromJSON(ch.options) });
+  } catch {
+    throw new PasskeyCancelled();
+  }
+  if (!cred) throw new PasskeyCancelled();
+  return { passkey: { challenge_id: ch.challenge_id, credential: (cred as PublicKeyCredential).toJSON() } };
+}
+
+export async function listPasskeys(): Promise<Passkey[]> {
+  return (await identityFetch<{ data: Passkey[] }>("GET", "auth/passkeys")).data;
+}
+
+/** Adds a passkey to the signed-in user. Needs a fresh TOTP code (CodeError if wrong); PasskeyCancelled if the user backs out. */
+export async function addPasskey(code: string, name: string): Promise<Passkey> {
+  const api = passkeyApi();
+  if (!api) throw new PasskeyCancelled();
+  let begin;
+  try {
+    begin = await identityFetch<{ challenge_id: string; options: unknown }>(
+      "POST",
+      "auth/passkeys/registration",
+      { code },
+      { csrf: true },
+    );
+  } catch (err) {
+    if (err instanceof IdentityError && err.status === 401 && err.message.includes("code")) throw new CodeError();
+    throw err;
+  }
+  let cred: Credential | null;
+  try {
+    cred = await navigator.credentials.create({ publicKey: api.parseCreationOptionsFromJSON(begin.options) });
+  } catch {
+    throw new PasskeyCancelled();
+  }
+  if (!cred) throw new PasskeyCancelled();
+  return identityFetch<Passkey>(
+    "POST",
+    "auth/passkeys/registration/finish",
+    { challenge_id: begin.challenge_id, name, credential: (cred as PublicKeyCredential).toJSON() },
+    { csrf: true },
+  );
+}
+
+export async function revokePasskey(id: string): Promise<void> {
+  await identityFetch("DELETE", `auth/passkeys/${id}`, undefined, { csrf: true });
+}
+
 // ---- Step-up (7.14, ADR-030) -----------------------------------------------
 //
 // ledger-core answers 403 step_up_required when a console user posts at or
@@ -433,14 +537,14 @@ export async function regenerateRecoveryCodes(code: string): Promise<string[]> {
 // token carrying step_up_at; it replaces the session token until it expires,
 // so the retried write (and any other in the next minutes) goes through.
 
-/** Proves a fresh TOTP code and switches to the elevated token. CodeError when the code is wrong or reused. */
-export async function stepUp(code: string): Promise<void> {
+/** Proves a fresh TOTP code or a passkey and switches to the elevated token. CodeError when the code is wrong or reused. */
+export async function stepUp(input: { code: string } | { passkey: true }): Promise<void> {
   let res;
   try {
     res = await identityFetch<{ access_token: string; expires_in: number }>(
       "POST",
       "auth/2fa/step-up",
-      { code },
+      "passkey" in input ? await passkeyAnswer() : { code: input.code },
       { csrf: true },
     );
   } catch (err) {

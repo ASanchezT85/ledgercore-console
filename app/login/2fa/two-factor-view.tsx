@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 import {
   AuthCard,
   AuthPage,
@@ -24,6 +24,8 @@ import {
   type Enrollment,
   LockedError,
   logout,
+  PasskeyCancelled,
+  passkeysSupported,
   startEnrollment,
   twoFactorStatus,
   verifySecondFactor,
@@ -32,7 +34,7 @@ import {
 type Phase =
   | { kind: "loading" }
   | { kind: "enroll"; enrollment: Enrollment }
-  | { kind: "verify" }
+  | { kind: "verify"; passkeys: boolean }
   | { kind: "codes"; codes: string[] };
 
 /**
@@ -75,14 +77,14 @@ function TwoFactor() {
         if (st.state === "active") {
           router.replace("/dashboard");
         } else if (st.enabled) {
-          setPhase({ kind: "verify" });
+          setPhase({ kind: "verify", passkeys: st.passkeys > 0 && passkeysSupported() });
         } else {
           const enrollment = await startEnrollment();
           if (!cancelled) setPhase({ kind: "enroll", enrollment });
         }
       } catch (err) {
         if (!cancelled) {
-          setPhase({ kind: "verify" });
+          setPhase({ kind: "verify", passkeys: false });
           fail(err);
         }
       }
@@ -118,6 +120,21 @@ function TwoFactor() {
       router.push("/dashboard");
     } catch (err) {
       fail(err, recovery);
+      setBusy(false);
+    }
+  }
+
+  async function onPasskey() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await verifySecondFactor({ passkey: true });
+      router.push("/dashboard");
+    } catch (err) {
+      if (err instanceof PasskeyCancelled) setError(null);
+      else if (err instanceof CodeError) setError(c.errPasskey);
+      else fail(err);
       setBusy(false);
     }
   }
@@ -227,6 +244,17 @@ function TwoFactor() {
           busyLabel={v.busy}
         />
       </form>
+      {phase.passkeys && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onPasskey()}
+          className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-(--radius-control) border border-edge-strong text-sm font-semibold text-ink transition-colors hover:bg-surface-raised disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <KeyRound size={14} aria-hidden="true" />
+          {v.usePasskey}
+        </button>
+      )}
       <p className="mt-3 text-center text-[11px]">
         <button
           type="button"

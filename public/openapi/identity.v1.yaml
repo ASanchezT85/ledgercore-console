@@ -745,6 +745,9 @@ paths:
                     description: The user has a confirmed authenticator.
                   recovery_codes_remaining:
                     type: integer
+                  passkeys:
+                    type: integer
+                    description: Live passkeys the user has (`GET /v1/auth/passkeys`). The login prompt offers the passkey when it is above zero.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -843,7 +846,10 @@ paths:
       description: |
         Send exactly one of `code` (the TOTP from the authenticator; the
         previous and next 30-second step are accepted, and a step is never
-        accepted twice) or `recovery_code` (each works once). On success the
+        accepted twice), `recovery_code` (each works once) or `passkey` (the
+        answer to a challenge from `POST /v1/auth/passkeys/assertion`; a
+        challenge works once and a failed answer counts against the same
+        lockout as a wrong code). On success the
         `password_verified` session becomes `active`. A wrong code is `401` and
         counts against the progressive lockout; during a wait even the right
         code is refused (`429`). `409` when the session is already active or the
@@ -864,6 +870,8 @@ paths:
                   description: Six digits; spaces and dashes are ignored.
                 recovery_code:
                   type: string
+                passkey:
+                  $ref: '#/components/schemas/PasskeyAnswer'
       responses:
         '200':
           description: Session is now active.
@@ -933,8 +941,10 @@ paths:
       summary: Prove a fresh TOTP code before a large money write
       description: |
         Step-up ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
-        Needs an **active** session and a fresh TOTP `code` (a time step not
-        used before; recovery codes are not accepted). Same progressive
+        Needs an **active** session and either a fresh TOTP `code` (a time step
+        not used before) or a `passkey` answer (challenge from
+        `POST /v1/auth/passkeys/assertion`); recovery codes are not accepted.
+        Same progressive
         lockout as the login factor: while the account or the IP is locked
         the answer is 429, a wrong code counts against both and is audited
         `2fa.failed`. Success is audited `2fa.step_up`.
@@ -952,7 +962,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TwoFactorCode'
+              type: object
+              additionalProperties: false
+              description: Exactly one of `code` or `passkey`.
+              properties:
+                code:
+                  type: string
+                  description: Six-digit TOTP; spaces and dashes are ignored.
+                passkey:
+                  $ref: '#/components/schemas/PasskeyAnswer'
       responses:
         '200':
           description: "Elevated JWT. `Cache-Control: no-store`."
@@ -980,6 +998,191 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '429': { $ref: '#/components/responses/TooManyAttempts' }
+
+  /v1/auth/passkeys:
+    get:
+      operationId: listPasskeys
+      tags: [Console]
+      summary: List the user's passkeys
+      description: |
+        Passkeys (WebAuthn) are a second 2FA method next to TOTP: usable at
+        login (`POST /v1/auth/2fa/verify`) and for the step-up
+        (`POST /v1/auth/2fa/step-up`). TOTP stays mandatory and is what
+        enrols the user; a passkey is added from an active session. Accepts a
+        `password_verified` session too. Revoked passkeys are not listed.
+      security:
+        - consoleSession: []
+      responses:
+        '200':
+          description: The live passkeys, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Passkey'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /v1/auth/passkeys/registration:
+    post:
+      operationId: beginPasskeyRegistration
+      tags: [Console]
+      summary: Start adding a passkey
+      description: |
+        Needs an **active** session and a fresh TOTP `code` (same lockout as
+        the other 2FA calls: a wrong code is `401`, audited `2fa.failed`), so a
+        stolen session alone cannot plant a second factor. Returns the
+        `options` for `navigator.credentials.create` (as
+        `PublicKeyCredential.parseCreationOptionsFromJSON` takes them) and a
+        single-use `challenge_id` valid 5 minutes. At most 10 passkeys per user
+        (`400` beyond that). `Cache-Control: no-store`.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFactorCode'
+      responses:
+        '200':
+          description: Challenge and creation options.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge_id, options]
+                properties:
+                  challenge_id:
+                    type: string
+                    format: uuid
+                  options:
+                    type: object
+                    additionalProperties: true
+                    description: WebAuthn `PublicKeyCredentialCreationOptionsJSON`.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The session is not active or the user has no authenticator (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+
+  /v1/auth/passkeys/registration/finish:
+    post:
+      operationId: finishPasskeyRegistration
+      tags: [Console]
+      summary: Finish adding a passkey
+      description: |
+        Verifies the authenticator's attestation against the challenge and the
+        configured relying party (`LEDGERCORE_WEBAUTHN_RP_ID` and
+        `LEDGERCORE_WEBAUTHN_ORIGINS`; by default the console's host and
+        origin) and stores the passkey. Audited `2fa.passkey_added`. `400` when
+        the challenge is unknown, expired, already used, or the attestation
+        does not verify.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PasskeyAnswer'
+                - type: object
+                  properties:
+                    name:
+                      type: string
+                      maxLength: 64
+                      description: Label shown in the list (default `Passkey`).
+      responses:
+        '201':
+          description: Passkey stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Passkey'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The session is not active (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/auth/passkeys/assertion:
+    post:
+      operationId: beginPasskeyAssertion
+      tags: [Console]
+      summary: Get a challenge to sign with a passkey
+      description: |
+        For the second factor at login (a `password_verified` session) or for a
+        step-up (an `active` one). Returns the `options` for
+        `navigator.credentials.get` and a single-use `challenge_id` valid 5
+        minutes; the answer goes in `passkey` of `POST /v1/auth/2fa/verify` or
+        `POST /v1/auth/2fa/step-up`. `409` when the user has no passkey.
+        `Cache-Control: no-store`.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Challenge and request options.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge_id, options]
+                properties:
+                  challenge_id:
+                    type: string
+                    format: uuid
+                  options:
+                    type: object
+                    additionalProperties: true
+                    description: WebAuthn `PublicKeyCredentialRequestOptionsJSON`.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The user has no passkey (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/auth/passkeys/{id}:
+    delete:
+      operationId: revokePasskey
+      tags: [Console]
+      summary: Revoke a passkey
+      description: |
+        Needs an **active** session. The passkey stops verifying at once; TOTP
+        and the recovery codes remain, so revoking cannot lock the user out.
+        Audited `2fa.passkey_revoked`. Owners and admins also remove every
+        passkey of a user with the 2FA reset.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Passkey revoked.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /v1/auth/invitations/accept:
     post:
@@ -2257,6 +2460,35 @@ components:
         two_factor_enabled:
           type: boolean
           description: The user has a confirmed authenticator (TOTP).
+
+    PasskeyAnswer:
+      type: object
+      required: [challenge_id, credential]
+      description: A browser's answer to a passkey challenge.
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        credential:
+          type: object
+          additionalProperties: true
+          description: '`PublicKeyCredential.toJSON()`.'
+
+    Passkey:
+      type: object
+      required: [id, name, created_at, last_used_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
 
     TwoFactorCode:
       type: object
