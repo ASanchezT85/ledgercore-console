@@ -10,27 +10,26 @@ import { LangToggle, LanguageProvider, useLang } from "@/components/language";
 import { BrandLockup } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import type { Lang } from "@/lib/i18n";
+import { curlSign } from "../guias/autenticacion/content";
 
 const API = "http://localhost:8080";
 
 // ---- curls (shared between languages; shapes follow ledger.v1.yaml) -------
 
-const CURL_TOKEN = `export API=${API}
+const CURL_SIGN_ES = curlSign(
+  "el Host que envía curl (host:puerto)",
+  "lc MÉTODO /ruta[?query] [cuerpo-json] [idempotency-key]   (query, si hay, ya ordenada)",
+);
 
-TOKEN=$(curl -s -X POST $API/v1/auth/token \\
-  -H "Content-Type: application/json" \\
-  -d '{ "api_key": "lk_sandbox_TU_LLAVE" }' | jq -r .access_token)`;
+const CURL_SIGN_EN = curlSign(
+  "the Host curl sends (host:port)",
+  "lc METHOD /path[?query] [json-body] [idempotency-key]   (query, if any, already sorted)",
+);
 
-const RESP_TOKEN = `{
-  "access_token": "eyJhbGciOiJFZERTQSIsImtpZCI6ImtleS0xIn0...",
-  "token_type": "Bearer",
-  "expires_in": 900
-}`;
+const RESP_SIGN = `{ "data": [] }`;
 
-const CURL_LEDGER = `LEDGER_ID=$(curl -s -X POST $API/v1/ledgers \\
-  -H "Authorization: Bearer $TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "name": "main", "description": "Primary operating ledger" }' | jq -r .id)`;
+const CURL_LEDGER = `LEDGER_ID=$(lc POST /v1/ledgers \\
+  '{ "name": "main", "description": "Primary operating ledger" }' | jq -r .id)`;
 
 const RESP_LEDGER = `{
   "id": "1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21",
@@ -42,10 +41,8 @@ const RESP_LEDGER = `{
 }`;
 
 const CURL_ACCOUNTS = `mkacct () {
-  curl -s -X POST $API/v1/accounts \\
-    -H "Authorization: Bearer $TOKEN" \\
-    -H "Content-Type: application/json" \\
-    -d "{ \\"ledger_id\\": \\"$LEDGER_ID\\", \\"name\\": \\"$1\\", \\"type\\": \\"$2\\", \\"normal_balance\\": \\"$3\\" }" | jq -r .id
+  lc POST /v1/accounts \\
+    "{ \\"ledger_id\\": \\"$LEDGER_ID\\", \\"name\\": \\"$1\\", \\"type\\": \\"$2\\", \\"normal_balance\\": \\"$3\\" }" | jq -r .id
 }
 
 CASH_ID=$(mkacct   "assets:cash"              asset     DEBIT)
@@ -63,10 +60,7 @@ const RESP_ACCOUNTS = `{
   "created_at": "2026-07-28T12:01:00Z"
 }`;
 
-const CURL_DEPOSIT = `curl -s -X POST $API/v1/transactions \\
-  -H "Authorization: Bearer $TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d "{
+const CURL_DEPOSIT = `lc POST /v1/transactions "{
     \\"ledger_id\\": \\"$LEDGER_ID\\",
     \\"idempotency_key\\": \\"dep-2026-0001\\",
     \\"description\\": \\"Customer USD deposit\\",
@@ -75,7 +69,7 @@ const CURL_DEPOSIT = `curl -s -X POST $API/v1/transactions \\
       { \\"account_id\\": \\"$WALLET_ID\\", \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"9700\\" } },
       { \\"account_id\\": \\"$FEES_ID\\",   \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"300\\" } }
     ]
-  }"`;
+  }" | jq`;
 
 const RESP_DEPOSIT = `{
   "id": "3c2d8e0f-1a2b-7c4d-9e5f-7a8b9c0d1e2f",
@@ -89,26 +83,25 @@ const RESP_DEPOSIT = `{
   "posted_at": "2026-07-28T12:05:00Z"
 }`;
 
-const CURL_BALANCES = `curl -s $API/v1/accounts/$WALLET_ID/balances \\
-  -H "Authorization: Bearer $TOKEN" | jq
+const CURL_BALANCES = `lc GET /v1/accounts/$WALLET_ID/balances | jq
 
-curl -s "$API/v1/trial-balance?ledger_id=$LEDGER_ID" \\
-  -H "Authorization: Bearer $TOKEN" | jq .totals`;
+lc GET "/v1/trial-balance?ledger_id=$LEDGER_ID" | jq .totals`;
 
 const RESP_BALANCES = `{ "data": [ { "asset": "USD", "exponent": 2, "posted": "9700",
     "pending": "0", "available": "9700", "held": "0", "version": 1 } ] }
 
 [ { "asset": "USD", "debits": "10000", "credits": "10000", "balanced": true } ]`;
 
-const CURL_REPLAY = `curl -si -X POST $API/v1/transactions \\
-  -H "Authorization: Bearer $TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d "{ \\"ledger_id\\": \\"$LEDGER_ID\\", \\"idempotency_key\\": \\"dep-2026-0001\\",
-        \\"postings\\": [
-          { \\"account_id\\": \\"$CASH_ID\\",   \\"direction\\": \\"DEBIT\\",  \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"10000\\" } },
-          { \\"account_id\\": \\"$WALLET_ID\\", \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"9700\\" } },
-          { \\"account_id\\": \\"$FEES_ID\\",   \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"300\\" } }
-        ] }" | grep -i "x-idempotent-replay\\|HTTP"`;
+const CURL_REPLAY = `LC_CURL_FLAGS=-si lc POST /v1/transactions "{
+    \\"ledger_id\\": \\"$LEDGER_ID\\",
+    \\"idempotency_key\\": \\"dep-2026-0001\\",
+    \\"description\\": \\"Customer USD deposit\\",
+    \\"postings\\": [
+      { \\"account_id\\": \\"$CASH_ID\\",   \\"direction\\": \\"DEBIT\\",  \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"10000\\" } },
+      { \\"account_id\\": \\"$WALLET_ID\\", \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"9700\\" } },
+      { \\"account_id\\": \\"$FEES_ID\\",   \\"direction\\": \\"CREDIT\\", \\"amount\\": { \\"asset\\": \\"USD\\", \\"amount\\": \\"300\\" } }
+    ]
+  }" | grep -i "x-idempotent-replay\\|HTTP"`;
 
 const RESP_REPLAY = `HTTP/2 200
 x-idempotent-replay: true`;
@@ -117,7 +110,7 @@ x-idempotent-replay: true`;
 
 const SDK_TS = `import { LedgerCore, Money } from "@ledgercore/sdk";
 
-const lc = new LedgerCore({ apiKey: "lk_sandbox_...", baseUrl: "${API}" });
+const lc = new LedgerCore({ apiKey: process.env.LEDGERCORE_API_KEY, apiSecret: process.env.LEDGERCORE_API_SECRET, baseUrl: "${API}" });
 const ledger = await lc.ledgers.create({ name: "main" });
 const wallet = await lc.accounts.create({ ledger_id: ledger.id, name: "customer:42:wallet", type: "liability", normal_balance: "CREDIT" });
 const txn = await lc.transactions.create({ ledger_id: ledger.id, postings: [/* debits = credits, Money.fromDecimal("100.50","USD",2) */] });`;
@@ -125,7 +118,7 @@ const txn = await lc.transactions.create({ ledger_id: ledger.id, postings: [/* d
 const SDK_PHP = `use LedgerCore\\LedgerCore;
 use LedgerCore\\Money;
 
-$lc = new LedgerCore(['api_key' => 'lk_sandbox_...', 'base_url' => '${API}']);
+$lc = new LedgerCore(['api_key' => getenv('LEDGERCORE_API_KEY'), 'api_secret' => getenv('LEDGERCORE_API_SECRET'), 'base_url' => '${API}']);
 $ledger = $lc->ledgers->create(['name' => 'main']);
 $txn = $lc->transactions->create(['ledger_id' => $ledger['id'], 'postings' => [/* Money::fromDecimal('100.50','USD',2) */]]);`;
 
@@ -162,20 +155,20 @@ const ES: QuickstartCopy = {
   metaBadge: "Quickstart · 10 minutos",
   title: "De 0 a tu primera transacción",
   subtitle:
-    "Siete pasos con curls reales contra el sandbox: crea tu tenant, postea un depósito de doble partida y comprueba que el ledger balancea — con idempotencia demostrada al final.",
-  signupCta: "1 · Crea tu sandbox y copia tu API key",
+    "Siete pasos con comandos reales contra el sandbox: crea tu tenant, postea un depósito de doble partida y comprueba que el ledger balancea — con idempotencia demostrada al final.",
+  signupCta: "1 · Crea tu sandbox",
   steps: [
     {
-      title: "Consigue tu API key",
-      body: "Regístrate en el sandbox gratuito: recibirás una llave lk_sandbox_… que se muestra una sola vez. Es la credencial raíz de tu tenant durante 14 días.",
+      title: "Crea tu credencial API",
+      body: "Regístrate en el sandbox gratuito (dura 14 días), acepta la invitación para fijar tu contraseña y entra a la consola. En Developers → API credentials pulsa Create credential, marca los scopes ledger:read y ledger:write y copia api_key (ak_sandbox_…) y api_secret (as_sandbox_…). El secreto se muestra una sola vez: guárdalo en un gestor de secretos.",
       curlLabel: "",
       respLabel: "",
     },
     {
-      title: "Intercambia la llave por un token",
-      body: "La API usa JWTs EdDSA de 15 minutos. Intercambia tu llave por uno y guárdalo en $TOKEN (necesitas curl y jq).",
-      curlLabel: "POST /v1/auth/token",
-      respLabel: "Respuesta esperada",
+      title: "Firma tus requests",
+      body: "Cada request lleva X-Api-Key, X-Timestamp, X-Nonce y X-Signature (HMAC-SHA256 con tu secreto; ±300 s; nonce de un solo uso). La función lc firma y envía con curl y openssl (necesitas también jq); los SDKs lo hacen solos. Los detalles y los errores están en la guía de autenticación. Las llaves lk_ antiguas y POST /v1/auth/token siguen funcionando hasta el 2027-02-01, pero están obsoletas.",
+      curlLabel: "bash · lc (curl + openssl)",
+      respLabel: "Respuesta esperada (tenant nuevo)",
     },
     {
       title: "Crea tu primer ledger",
@@ -203,21 +196,21 @@ const ES: QuickstartCopy = {
     },
     {
       title: "Repite el curl: replay idempotente",
-      body: "Ejecuta el MISMO curl del paso 5 otra vez. No se duplica dinero: la API devuelve la transacción original con 200 y la cabecera X-Idempotent-Replay: true. Esa es la garantía que hace seguros los retries.",
+      body: "Ejecuta el MISMO comando del paso 5 otra vez (lc firma de nuevo, con nonce y timestamp nuevos). No se duplica dinero: la API devuelve la transacción original con 200 y la cabecera X-Idempotent-Replay: true. Esa es la garantía que hace seguros los retries.",
       curlLabel: "El mismo POST, segunda vez",
       respLabel: "Cabeceras esperadas",
     },
   ],
   sdksTitle: "Lo mismo con los SDKs oficiales",
   sdksBody:
-    "Todo el flujo anterior en 5 líneas: los SDKs de TypeScript (@ledgercore/sdk) y PHP (ledgercore/sdk) gestionan solos el intercambio de token y su renovación, generan la idempotency key si no la pasas y manejan el dinero siempre como strings de unidades menores (Money.fromDecimal). Viven en sdks/ dentro del monorepo.",
+    "Todo el flujo anterior en 5 líneas: los SDKs de TypeScript (@ledgercore/sdk) y PHP (ledgercore/sdk) firman cada request por ti con tu llave y tu secreto, generan la idempotency key si no la pasas y manejan el dinero siempre como strings de unidades menores (Money.fromDecimal). Viven en sdks/ dentro del monorepo.",
   sdkTsLabel: "TypeScript · npm install @ledgercore/sdk",
   sdkPhpLabel: "PHP · composer require ledgercore/sdk",
   errorsTitle: "Errores comunes",
   errors: [
     {
-      code: "401 invalid_token",
-      body: "El JWT dura 15 minutos. Si ves invalid_token, re-ejecuta el paso 2 para renovar $TOKEN. En la consola esto es automático.",
+      code: "401 signature_invalid",
+      body: "La firma no coincide: el HOST debe ser el de la URL, el cuerpo y la query no pueden cambiar después de firmar y la llave y el secreto deben ser de la misma credencial. timestamp_skew: sincroniza el reloj (±300 s). nonce_reused: cada intento lleva un nonce nuevo (lc ya lo hace). credential_expired / credential_revoked: rota o crea otra credencial.",
     },
     {
       code: "409 / 422",
@@ -230,7 +223,7 @@ const ES: QuickstartCopy = {
   ],
   finalTitle: "Listo: tu ledger balancea",
   finalBody:
-    "Ya tienes tenant, ledger, cuentas, una transacción posteada y la prueba de idempotencia. Entra a la consola con tu API key para ver todo esto en vivo.",
+    "Ya tienes tenant, ledger, cuentas, una transacción posteada y la prueba de idempotencia. Entra a la consola con tu correo y contraseña para ver todo esto en vivo.",
   finalCta: "Crear mi sandbox",
   consoleCta: "Entrar a la consola",
   copy: "Copiar",
@@ -241,20 +234,20 @@ const EN: QuickstartCopy = {
   metaBadge: "Quickstart · 10 minutes",
   title: "From 0 to your first transaction",
   subtitle:
-    "Seven steps with real curls against the sandbox: create your tenant, post a double-entry deposit and verify the ledger balances — with idempotency proven at the end.",
-  signupCta: "1 · Create your sandbox and copy your API key",
+    "Seven steps with real commands against the sandbox: create your tenant, post a double-entry deposit and verify the ledger balances — with idempotency proven at the end.",
+  signupCta: "1 · Create your sandbox",
   steps: [
     {
-      title: "Get your API key",
-      body: "Sign up for the free sandbox: you'll receive an lk_sandbox_… key shown exactly once. It is your tenant's root credential for 14 days.",
+      title: "Create your API credential",
+      body: "Sign up for the free sandbox (it lasts 14 days), accept the invitation to set your password and sign in to the console. Under Developers → API credentials click Create credential, tick the ledger:read and ledger:write scopes and copy the api_key (ak_sandbox_…) and the api_secret (as_sandbox_…). The secret is shown exactly once: keep it in a secret manager.",
       curlLabel: "",
       respLabel: "",
     },
     {
-      title: "Exchange the key for a token",
-      body: "The API uses 15-minute EdDSA JWTs. Exchange your key for one and keep it in $TOKEN (you need curl and jq).",
-      curlLabel: "POST /v1/auth/token",
-      respLabel: "Expected response",
+      title: "Sign your requests",
+      body: "Every request carries X-Api-Key, X-Timestamp, X-Nonce and X-Signature (HMAC-SHA256 with your secret; ±300 s; one-use nonce). The lc function signs and sends with curl and openssl (you also need jq); the SDKs do it for you. Details and errors are in the authentication guide. The old lk_ keys and POST /v1/auth/token keep working until 2027-02-01 but are deprecated.",
+      curlLabel: "bash · lc (curl + openssl)",
+      respLabel: "Expected response (new tenant)",
     },
     {
       title: "Create your first ledger",
@@ -282,21 +275,21 @@ const EN: QuickstartCopy = {
     },
     {
       title: "Run the curl again: idempotent replay",
-      body: "Run the SAME curl from step 5 once more. No money is duplicated: the API returns the original transaction with 200 and the X-Idempotent-Replay: true header. That guarantee is what makes retries safe.",
+      body: "Run the SAME command from step 5 once more (lc signs again, with a new nonce and timestamp). No money is duplicated: the API returns the original transaction with 200 and the X-Idempotent-Replay: true header. That guarantee is what makes retries safe.",
       curlLabel: "The same POST, second time",
       respLabel: "Expected headers",
     },
   ],
   sdksTitle: "The same flow with the official SDKs",
   sdksBody:
-    "The whole flow above in 5 lines: the TypeScript (@ledgercore/sdk) and PHP (ledgercore/sdk) SDKs handle the token exchange and renewal for you, generate the idempotency key when you don't pass one, and always treat money as minor-unit strings (Money.fromDecimal). They live under sdks/ in the monorepo.",
+    "The whole flow above in 5 lines: the TypeScript (@ledgercore/sdk) and PHP (ledgercore/sdk) SDKs sign every request for you with your key and secret, generate the idempotency key when you don't pass one, and always treat money as minor-unit strings (Money.fromDecimal). They live under sdks/ in the monorepo.",
   sdkTsLabel: "TypeScript · npm install @ledgercore/sdk",
   sdkPhpLabel: "PHP · composer require ledgercore/sdk",
   errorsTitle: "Common errors",
   errors: [
     {
-      code: "401 invalid_token",
-      body: "The JWT lives 15 minutes. If you see invalid_token, re-run step 2 to refresh $TOKEN. The console does this automatically.",
+      code: "401 signature_invalid",
+      body: "The signature does not match: HOST must be the one in the URL, the body and query cannot change after signing, and the key and secret must belong to the same credential. timestamp_skew: sync your clock (±300 s). nonce_reused: every attempt carries a new nonce (lc already does that). credential_expired / credential_revoked: rotate it or create another credential.",
     },
     {
       code: "409 / 422",
@@ -309,7 +302,7 @@ const EN: QuickstartCopy = {
   ],
   finalTitle: "Done: your ledger balances",
   finalBody:
-    "You now have a tenant, a ledger, accounts, a posted transaction and proof of idempotency. Sign in to the console with your API key to see it all live.",
+    "You now have a tenant, a ledger, accounts, a posted transaction and proof of idempotency. Sign in to the console with your email and password to see it all live.",
   finalCta: "Create my sandbox",
   consoleCta: "Open the console",
   copy: "Copy",
@@ -406,7 +399,7 @@ function QuickstartContent() {
   const [firstStep, ...restSteps] = c.steps;
   const curls: Array<[string, string] | null> = [
     null,
-    [CURL_TOKEN, RESP_TOKEN],
+    [lang === "es" ? CURL_SIGN_ES : CURL_SIGN_EN, RESP_SIGN],
     [CURL_LEDGER, RESP_LEDGER],
     [CURL_ACCOUNTS, RESP_ACCOUNTS],
     [CURL_DEPOSIT, RESP_DEPOSIT],

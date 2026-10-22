@@ -23,6 +23,9 @@ const ROUTES: { pattern: RegExp; methods: string[] }[] = [
   { pattern: /^users$/, methods: ["GET"] },
   { pattern: /^users\/invitations$/, methods: ["POST"] },
   { pattern: /^users\/[0-9a-f-]{36}$/i, methods: ["PATCH"] },
+  { pattern: /^api-credentials$/, methods: ["GET", "POST"] },
+  { pattern: /^api-credentials\/[0-9a-f-]{36}\/rotate$/i, methods: ["POST"] },
+  { pattern: /^api-credentials\/[0-9a-f-]{36}$/i, methods: ["DELETE"] },
   { pattern: /^users\/[0-9a-f-]{36}\/2fa$/i, methods: ["DELETE"] },
   { pattern: /^auth\/2fa$/, methods: ["GET"] },
   { pattern: /^auth\/2fa\/(enrollment|enrollment\/confirm|verify|recovery-codes)$/, methods: ["POST"] },
@@ -83,7 +86,7 @@ async function proxy(
     upstream = await fetch(`${base}/v1/${rest}${query}`, {
       method: request.method,
       headers,
-      body: request.method === "GET" ? undefined : await request.text(),
+      body: request.method === "GET" || request.method === "DELETE" ? undefined : await request.text(),
       cache: "no-store",
       redirect: "manual",
     });

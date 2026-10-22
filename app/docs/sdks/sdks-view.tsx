@@ -30,7 +30,7 @@ const TS_INSTALL = `npm install @ledgercore/sdk`;
 
 const TS_QUICKSTART = `import { LedgerCore, Money } from "@ledgercore/sdk";
 
-const lc = new LedgerCore({ apiKey: "lk_sandbox_...", baseUrl: "${API_BASE}" });
+const lc = new LedgerCore({ apiKey: process.env.LEDGERCORE_API_KEY, apiSecret: process.env.LEDGERCORE_API_SECRET, baseUrl: "${API_BASE}" });
 const ledger = await lc.ledgers.create({ name: "main" });
 const wallet = await lc.accounts.create({ ledger_id: ledger.id, name: "customer:42:wallet", type: "liability", normal_balance: "CREDIT" });
 const txn = await lc.transactions.create({ ledger_id: ledger.id, postings: [/* debits = credits, Money.fromDecimal("100.50","USD",2) */] });`;
@@ -40,7 +40,7 @@ const PHP_INSTALL = `composer require ledgercore/sdk`;
 const PHP_QUICKSTART = `use LedgerCore\\LedgerCore;
 use LedgerCore\\Money;
 
-$lc = new LedgerCore(['api_key' => 'lk_sandbox_...', 'base_url' => '${API_BASE}']);
+$lc = new LedgerCore(['api_key' => getenv('LEDGERCORE_API_KEY'), 'api_secret' => getenv('LEDGERCORE_API_SECRET'), 'base_url' => '${API_BASE}']);
 $ledger = $lc->ledgers->create(['name' => 'main']);
 $txn = $lc->transactions->create(['ledger_id' => $ledger['id'], 'postings' => [/* Money::fromDecimal('100.50','USD',2) */]]);`;
 
@@ -93,7 +93,7 @@ const ES: SdksCopy = {
   badge: "SDKs oficiales",
   title: "SDKs: TypeScript y PHP",
   subtitle:
-    "Los dos SDKs oficiales cubren toda la superficie de la API con la misma semántica: auth automática (token exchange + renovación), Money helpers sin redondeo silencioso, idempotencia de primera clase, autopaginación y verificación de firmas de webhook en tiempo constante.",
+    "Los dos SDKs oficiales cubren toda la superficie de la API con la misma semántica: firma automática de cada request con tu credencial API, Money helpers sin redondeo silencioso, idempotencia de primera clase, autopaginación y verificación de firmas de webhook en tiempo constante.",
   back: "Docs",
   tsTitle: "TypeScript — @ledgercore/sdk",
   tsBody:
@@ -104,7 +104,7 @@ const ES: SdksCopy = {
   install: "Instalación",
   quickstart: "Quickstart (5 líneas)",
   features: [
-    "Auth gestionada: API key → JWT EdDSA de 15 min, caché, renovación <60 s y un retry en 401.",
+    "Firma gestionada: llave + secreto de tu credencial API (ak_ / as_); el SDK genera timestamp y nonce y firma cada request con HMAC-SHA256. Las llaves lk_ antiguas siguen funcionando hasta el 2027-02-01 (obsoletas).",
     "Dinero siempre como strings de unidades menores: Money.fromDecimal / toDecimal, error explícito ante precisión imposible.",
     "Idempotencia: pasa tu key o el SDK genera un UUID v4; los retries nunca duplican dinero.",
     "Paginación: list({ limit, cursor }) + autopaginación listAll() en todas las colecciones.",
@@ -121,7 +121,7 @@ const EN: SdksCopy = {
   badge: "Official SDKs",
   title: "SDKs: TypeScript and PHP",
   subtitle:
-    "Both official SDKs cover the full API surface with identical semantics: automatic auth (token exchange + renewal), Money helpers with no silent rounding, first-class idempotency, auto-pagination and constant-time webhook signature verification.",
+    "Both official SDKs cover the full API surface with identical semantics: automatic request signing with your API credential, Money helpers with no silent rounding, first-class idempotency, auto-pagination and constant-time webhook signature verification.",
   back: "Docs",
   tsTitle: "TypeScript — @ledgercore/sdk",
   tsBody:
@@ -132,7 +132,7 @@ const EN: SdksCopy = {
   install: "Install",
   quickstart: "Quickstart (5 lines)",
   features: [
-    "Auth handled for you: API key → 15-min EdDSA JWT, cached, renewed under 60 s, one retry on 401.",
+    "Signing handled for you: the key + secret of your API credential (ak_ / as_); the SDK generates the timestamp and nonce and signs every request with HMAC-SHA256. The old lk_ keys keep working until 2027-02-01 (deprecated).",
     "Money always as minor-unit strings: Money.fromDecimal / toDecimal, explicit error on impossible precision.",
     "Idempotency: pass your key or the SDK generates a UUID v4; retries never duplicate money.",
     "Pagination: list({ limit, cursor }) plus listAll() auto-pagination on every collection.",

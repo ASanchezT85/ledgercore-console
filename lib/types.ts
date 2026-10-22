@@ -102,12 +102,17 @@ export interface DashboardData {
   reconHealth: ReconSourceHealth[];
 }
 
-export interface ApiKey {
+/** Demo-mode shape of an API credential (key + secret): the secret is never listed. */
+export interface DemoCredential {
   id: string;
   name: string;
-  prefix: string;
+  environment: "sandbox" | "live";
+  /** Public key id, `ak_<env>_...`. */
+  apiKey: string;
+  scopes: string[];
+  status: "active" | "expired" | "revoked";
   createdAt: string;
-  lastUsedAt: string | null;
+  expiresAt: string;
 }
 
 export interface WebhookSubscription {
@@ -119,7 +124,7 @@ export interface WebhookSubscription {
 }
 
 export interface DeveloperData {
-  apiKeys: ApiKey[];
+  credentials: DemoCredential[];
   webhooks: WebhookSubscription[];
 }
 

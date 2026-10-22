@@ -514,27 +514,46 @@ export const mockReconciliation: ReconciliationData = {
 };
 
 export const mockDevelopers: DeveloperData = {
-  apiKeys: [
+  credentials: [
     {
-      id: "key_01J8Z9A1B2C3",
+      id: "cred_01J8Z9A1B2C3",
       name: "production-backend",
-      prefix: "lc_live_8fk2…",
+      environment: "live",
+      apiKey: "ak_live_8fk2…",
+      scopes: ["ledger:read", "ledger:write"],
+      status: "active",
       createdAt: "2026-05-12T09:15:00Z",
-      lastUsedAt: "2026-07-24T14:29:51Z",
+      expiresAt: "2026-11-08T09:15:00Z",
     },
     {
-      id: "key_01J8Z9D4E5F6",
+      id: "cred_01J8Z9D4E5F6",
       name: "recon-worker",
-      prefix: "lc_live_2mq7…",
+      environment: "live",
+      apiKey: "ak_live_2mq7…",
+      scopes: ["ledger:read", "reconciliation:read", "reconciliation:write"],
+      status: "active",
       createdAt: "2026-06-03T16:42:00Z",
-      lastUsedAt: "2026-07-24T14:00:03Z",
+      expiresAt: "2026-11-30T16:42:00Z",
     },
     {
-      id: "key_01J8Z9G7H8J9",
+      id: "cred_01J8Z9G7H8J9",
       name: "sandbox-testing",
-      prefix: "lc_test_5rt0…",
+      environment: "sandbox",
+      apiKey: "ak_sandbox_5rt0…",
+      scopes: ["ledger:read", "ledger:write", "webhooks:read"],
+      status: "active",
       createdAt: "2026-07-01T11:08:00Z",
-      lastUsedAt: null,
+      expiresAt: "2026-12-28T11:08:00Z",
+    },
+    {
+      id: "cred_01J8Z9K2L3M4",
+      name: "legacy-batch-job",
+      environment: "live",
+      apiKey: "ak_live_9xc4…",
+      scopes: ["ledger:read"],
+      status: "revoked",
+      createdAt: "2026-02-10T08:00:00Z",
+      expiresAt: "2026-08-09T08:00:00Z",
     },
   ],
   webhooks: [

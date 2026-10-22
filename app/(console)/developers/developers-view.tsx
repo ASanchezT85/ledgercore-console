@@ -9,7 +9,7 @@ import { DemoBadge } from "@/components/demo-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { mockDevelopers } from "@/lib/mock-data";
 import {
   apiBaseUrl,
@@ -19,26 +19,33 @@ import {
   type SessionClaims,
   type SessionInfo,
 } from "@/lib/session";
+import { ApiCredentialsCard } from "./api-credentials";
 
-const LIVE_CURL = (api: string) => `# 1. Exchange your API key for a 15-min JWT
-TOKEN=$(curl -s -X POST ${api}/v1/auth/token \\
-  -H "Content-Type: application/json" \\
-  -d '{ "api_key": "lk_sandbox_..." }' | jq -r .access_token)
+const LIVE_SNIPPET = (api: string) => `import { LedgerCore } from "@ledgercore/sdk";
 
-# 2. Post your first double-entry transaction
-curl -s -X POST ${api}/v1/transactions \\
-  -H "Authorization: Bearer $TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "ledger_id": "<LEDGER_ID>",
-    "idempotency_key": "dep-0001",
-    "description": "Customer USD deposit",
-    "postings": [
-      { "account_id": "<CASH>",   "direction": "DEBIT",  "amount": { "asset": "USD", "amount": "10000" } },
-      { "account_id": "<WALLET>", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "9700" } },
-      { "account_id": "<FEES>",   "direction": "CREDIT", "amount": { "asset": "USD", "amount": "300" } }
-    ]
-  }'`;
+// The SDK signs every request for you (X-Api-Key, X-Timestamp, X-Nonce, X-Signature).
+const lc = new LedgerCore({
+  apiKey: process.env.LEDGERCORE_API_KEY,       // ak_sandbox_XXXXXXXXXXXXXXXXXXXX
+  apiSecret: process.env.LEDGERCORE_API_SECRET, // as_sandbox_... (shown once, keep it in a secret manager)
+  baseUrl: "${api}",
+});
+
+const ledger = await lc.ledgers.create({ name: "main" });
+const accounts = await lc.accounts.list({ ledger_id: ledger.id });`;
+
+const CANONICAL = `X-Signature = hex( HMAC-SHA256( api_secret, canonical ) )
+
+canonical = "LC1-HMAC-SHA256" 
+ METHOD 
+ host 
+ path 
+ query 
+ api_key
+            
+ timestamp 
+ nonce 
+ idempotency_key 
+ hex(sha256(body))`;
 
 function LiveDevelopers() {
   const [claims, setClaims] = useState<SessionClaims | null>(null);
@@ -97,34 +104,57 @@ function LiveDevelopers() {
         </dl>
         <p className="mt-3 text-xs text-ink-faint">
           The JWT lasts 15 minutes; the console renews it automatically from your
-          signed-in session. API keys are for your integrations only: the
-          console never stores one.
+          signed-in session. API credentials are for your integrations only: the
+          console never stores a secret.
         </p>
       </Card>
 
+      {info && <ApiCredentialsCard info={info} />}
+
       <Card
         title="Getting started"
-        subtitle="Token + first double-entry transaction against the real API"
+        subtitle="Sign your requests with an API credential and make your first call"
       >
         <div className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
             <div className="mb-3 flex items-center gap-2 text-ink-faint">
               <Terminal size={13} aria-hidden="true" />
               <span className="text-[11px] font-medium tracking-wider uppercase">
-                POST /v1/auth/token → POST /v1/transactions
+                Node · @ledgercore/sdk
               </span>
             </div>
             <pre className="font-mono text-xs leading-relaxed text-ink-muted">
-              <code>{LIVE_CURL(api)}</code>
+              <code>{LIVE_SNIPPET(api)}</code>
             </pre>
           </div>
           <p className="text-xs text-ink-faint">
-            Full guide from zero to your first transaction at{" "}
+            Without an SDK, send the headers <code className="font-mono">X-Api-Key</code>,{" "}
+            <code className="font-mono">X-Timestamp</code> (unix seconds, ±300 s),{" "}
+            <code className="font-mono">X-Nonce</code> (new on every request) and{" "}
+            <code className="font-mono">X-Signature</code>, computed like this:
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-edge bg-[#04070c] p-4">
+            <pre className="font-mono text-xs leading-relaxed text-ink-muted">
+              <code>{CANONICAL}</code>
+            </pre>
+          </div>
+          <p className="text-xs text-ink-faint">
+            The query string is signed too. Full scheme, errors and test vectors at{" "}
+            <a href="/docs/guias/autenticacion" className="text-accent hover:underline">
+              /docs/guias/autenticacion
+            </a>
+            ; first transaction at{" "}
             <a href="/docs/quickstart" className="text-accent hover:underline">
               /docs/quickstart
             </a>
             . Amounts are integers in minor units, string-encoded
             (&quot;10000&quot; = $100.00) — never floats.
+          </p>
+          <p className="text-xs text-ink-faint">
+            The old <code className="font-mono">lk_</code> keys and{" "}
+            <code className="font-mono">POST /v1/auth/token</code> are deprecated: they keep
+            working until 2027-02-01 and then answer{" "}
+            <code className="font-mono">legacy_credential_retired</code>.
           </p>
         </div>
       </Card>
@@ -133,12 +163,12 @@ function LiveDevelopers() {
 }
 
 function DemoDevelopers() {
-  const { apiKeys, webhooks } = mockDevelopers;
+  const { credentials, webhooks } = mockDevelopers;
   return (
     <>
       <Card
-        title="API keys"
-        subtitle="Keys are shown only once at creation; only the prefix is listed here"
+        title="API credentials"
+        subtitle="Key + secret that sign every request. The secret is shown only once, at creation; it is never listed"
         flush
         actions={
           <span className="group relative inline-block">
@@ -148,14 +178,14 @@ function DemoDevelopers() {
               className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-(--radius-control) border border-edge-strong px-3 text-xs font-medium text-ink-faint opacity-60"
             >
               <Plus size={13} aria-hidden="true" />
-              Create key
+              Create credential
             </button>
             <span
               role="tooltip"
               className="pointer-events-none absolute top-full right-0 z-10 mt-2 w-56 rounded-lg border border-edge bg-surface-raised px-3 py-2 text-[11px] text-ink-muted opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100"
             >
-              Issuing additional keys is coming soon; today keys are created
-              through the sandbox signup.
+              Demo data: sign in with your email and password to create real
+              credentials (an owner or admin role is required).
             </span>
           </span>
         }
@@ -163,31 +193,47 @@ function DemoDevelopers() {
         <Table>
           <THead>
             <TH>Name</TH>
-            <TH>Prefix</TH>
-            <TH>Created</TH>
-            <TH className="text-right">Last used</TH>
+            <TH>Env</TH>
+            <TH>API key</TH>
+            <TH>Scopes</TH>
+            <TH>Status</TH>
+            <TH className="text-right">Expires</TH>
           </THead>
           <TBody>
-            {apiKeys.map((apiKey) => (
-              <TR key={apiKey.id}>
+            {credentials.map((credential) => (
+              <TR key={credential.id}>
                 <TD>
                   <span className="inline-flex items-center gap-2 font-medium text-ink">
                     <KeyRound size={13} className="text-ink-faint" aria-hidden="true" />
-                    {apiKey.name}
+                    {credential.name}
                   </span>
                 </TD>
                 <TD>
+                  <Badge tone={credential.environment === "live" ? "emerald" : "violet"} dot>
+                    {credential.environment}
+                  </Badge>
+                </TD>
+                <TD>
                   <code className="rounded-md border border-edge bg-surface-raised px-2 py-0.5 font-mono text-xs text-accent">
-                    {apiKey.prefix}
+                    {credential.apiKey}
                   </code>
                 </TD>
-                <TD className="text-xs">{formatDate(apiKey.createdAt)}</TD>
+                <TD>
+                  <div className="flex max-w-64 flex-wrap gap-1">
+                    {credential.scopes.map((scope) => (
+                      <Badge key={scope} tone="slate" className="font-mono text-[10px]">
+                        {scope}
+                      </Badge>
+                    ))}
+                  </div>
+                </TD>
+                <TD>
+                  <Badge tone={credential.status === "active" ? "emerald" : "red"} dot>
+                    {credential.status}
+                  </Badge>
+                </TD>
                 <TD className="text-right text-xs whitespace-nowrap">
-                  {apiKey.lastUsedAt ? (
-                    formatDateTime(apiKey.lastUsedAt)
-                  ) : (
-                    <span className="text-ink-faint">never</span>
-                  )}
+                  {formatDate(credential.expiresAt)}
                 </TD>
               </TR>
             ))}

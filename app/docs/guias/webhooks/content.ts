@@ -3,10 +3,8 @@
 
 import type { GuideContent } from "../../docs-ui";
 
-const CURL_SUB = `curl -s -X POST $API/v1/webhook-subscriptions \\
-  -H "Authorization: Bearer $TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
+// lc = the signing helper of /docs/guias/autenticacion (API credential, signed requests).
+const CURL_SUB = `lc POST /v1/webhook-subscriptions '{
     "url": "https://api.acme.example/hooks/ledgercore",
     "event_types": ["ledger.transaction.posted", "ledger.transaction.reversed"]
   }'`;
@@ -27,7 +25,10 @@ X-LedgerCore-Signature: t=1753358400,v1=<nuevo-secreto-hmac>,v1=<secreto-anterio
 
 const TS_VERIFY = `// Con el SDK (recomendado): tiempo constante + ventana anti-replay de 5 min
 import { LedgerCore } from "@ledgercore/sdk";
-const lc = new LedgerCore({ apiKey: "lk_..." });
+const lc = new LedgerCore({
+  apiKey: process.env.LEDGERCORE_API_KEY,
+  apiSecret: process.env.LEDGERCORE_API_SECRET,
+});
 
 // ¡SIEMPRE el cuerpo crudo, nunca JSON re-serializado!
 const ok = await lc.webhooks.verifySignature(
@@ -71,8 +72,7 @@ if (!$ok) {
     exit;
 }`;
 
-const CURL_ROTATE = `curl -s -X POST $API/v1/webhook-subscriptions/$SUB_ID/rotate-secret \\
-  -H "Authorization: Bearer $TOKEN"`;
+const CURL_ROTATE = `lc POST /v1/webhook-subscriptions/$SUB_ID/rotate-secret`;
 
 const RESP_ROTATE = `{
   "id": "…",
