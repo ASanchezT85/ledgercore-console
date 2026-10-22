@@ -30,6 +30,8 @@ export interface Transaction {
   createdAt: string;
   idempotencyKey: string;
   postings: Posting[];
+  /** Live data only: this is itself a reversal (of that transaction). */
+  reverses?: string | null;
 }
 
 export interface LedgerAccount {

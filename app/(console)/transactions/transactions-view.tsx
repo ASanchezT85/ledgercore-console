@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 import { DemoBadge } from "@/components/demo-badge";
 import {
@@ -16,6 +16,8 @@ import {
 import {
   assetExponent,
   loadTransactionsPage,
+  type ApiTxnStatus,
+  type TransactionFilters,
   transactionTotals,
   type ApiTransaction,
   type LiveTransactionsPage,
@@ -63,6 +65,7 @@ function toViewTransaction(
     exponent,
     createdAt: txn.created_at,
     idempotencyKey: txn.idempotency_key,
+    reverses: txn.reverses,
     postings: txn.postings.map((p) => ({
       account: accountNames[p.account_id] ?? p.account_id,
       direction: p.direction === "DEBIT" ? "debit" : "credit",
@@ -73,7 +76,15 @@ function toViewTransaction(
   };
 }
 
-function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
+function LiveTransactions({
+  initial,
+  filters,
+  onReversed,
+}: {
+  initial: LiveTransactionsPage;
+  filters: TransactionFilters;
+  onReversed: () => void;
+}) {
   const [pages, setPages] = useState<LiveTransactionsPage[]>([initial]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState(false);
@@ -90,14 +101,14 @@ function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
     setLoadingMore(true);
     setMoreError(false);
     try {
-      const next = await loadTransactionsPage(last.nextCursor);
+      const next = await loadTransactionsPage(last.nextCursor, filters);
       setPages((prev) => [...prev, next]);
     } catch {
       setMoreError(true);
     } finally {
       setLoadingMore(false);
     }
-  }, [last.nextCursor]);
+  }, [last.nextCursor, filters]);
 
   if (transactions.length === 0) {
     return (
@@ -112,7 +123,7 @@ function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
 
   return (
     <>
-      <TransactionsExplorer transactions={transactions} />
+      <TransactionsExplorer transactions={transactions} onReversed={onReversed} />
       {last.nextCursor && (
         <div className="flex justify-center">
           <button
@@ -137,8 +148,88 @@ function LiveTransactions({ initial }: { initial: LiveTransactionsPage }) {
   );
 }
 
+const FILTER_INPUT =
+  "h-9 rounded-(--radius-control) border border-edge-strong bg-surface-raised px-3 text-xs text-ink";
+
+/** Server-side filters (6.7): they combine with AND; a parent account covers its subtree. */
+function FilterBar({
+  options,
+  onApply,
+}: {
+  options: { ledgers: Record<string, string>; accounts: Record<string, string> };
+  onApply: (f: TransactionFilters) => void;
+}) {
+  const [ledger, setLedger] = useState("");
+  const [status, setStatus] = useState("");
+  const [account, setAccount] = useState("");
+  const [key, setKey] = useState("");
+  const [value, setValue] = useState("");
+  const pairOk = (key.trim() === "") === (value.trim() === "");
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!pairOk) return;
+        onApply({
+          ledger_id: ledger || undefined,
+          status: (status || undefined) as ApiTxnStatus | undefined,
+          account_id: account || undefined,
+          metadata_key: key.trim() || undefined,
+          metadata_value: value.trim() || undefined,
+        });
+      }}
+    >
+      <select className={FILTER_INPUT} value={ledger} onChange={(e) => setLedger(e.target.value)} aria-label="Ledger">
+        <option value="">All ledgers</option>
+        {Object.entries(options.ledgers).map(([id, name]) => (
+          <option key={id} value={id}>{name}</option>
+        ))}
+      </select>
+      <select className={FILTER_INPUT} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+        <option value="">Any status</option>
+        {["posted", "draft", "reversed", "discarded"].map((st) => (
+          <option key={st} value={st}>{st}</option>
+        ))}
+      </select>
+      <select className={FILTER_INPUT} value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account">
+        <option value="">Any account</option>
+        {Object.entries(options.accounts).map(([id, name]) => (
+          <option key={id} value={id}>{name}</option>
+        ))}
+      </select>
+      <input className={FILTER_INPUT} placeholder="metadata key" value={key} onChange={(e) => setKey(e.target.value)} aria-label="Metadata key" />
+      <input className={FILTER_INPUT} placeholder="metadata value" value={value} onChange={(e) => setValue(e.target.value)} aria-label="Metadata value" />
+      <button
+        type="submit"
+        disabled={!pairOk}
+        className="h-9 rounded-(--radius-control) border border-edge-strong px-4 text-xs font-medium text-ink hover:border-accent/60 hover:text-accent disabled:opacity-50"
+      >
+        Apply filters
+      </button>
+      {!pairOk && (
+        <span className="text-xs text-danger">Metadata needs both key and value.</span>
+      )}
+    </form>
+  );
+}
+
 export function TransactionsView() {
-  const state = useLiveData(() => loadTransactionsPage());
+  const applied = useRef<TransactionFilters>({});
+  const [filters, setFilters] = useState<TransactionFilters>({});
+  const [options, setOptions] = useState<{
+    ledgers: Record<string, string>;
+    accounts: Record<string, string>;
+  }>({ ledgers: {}, accounts: {} });
+  const state = useLiveData(async () => {
+    const page = await loadTransactionsPage(undefined, applied.current);
+    setOptions((o) =>
+      Object.keys(o.ledgers).length
+        ? o
+        : { ledgers: page.ledgerNames, accounts: page.accountNames },
+    );
+    return page;
+  });
 
   return (
     <div className="space-y-6">
@@ -155,6 +246,17 @@ export function TransactionsView() {
         <DemoBadge demo={state.status === "demo"} />
       </div>
 
+      {state.status !== "demo" && (
+        <FilterBar
+          options={options}
+          onApply={(f) => {
+            applied.current = f;
+            setFilters(f);
+            state.reload();
+          }}
+        />
+      )}
+
       {state.status === "loading" && <LoadingCard orb="solving" />}
       {state.status === "demo" && (
         <TransactionsExplorer transactions={mockTransactions} />
@@ -164,7 +266,7 @@ export function TransactionsView() {
         <ErrorBanner message={state.message} onRetry={state.reload} />
       )}
       {state.status === "live" && (
-        <LiveTransactions initial={state.data} />
+        <LiveTransactions initial={state.data} filters={filters} onReversed={state.reload} />
       )}
     </div>
   );

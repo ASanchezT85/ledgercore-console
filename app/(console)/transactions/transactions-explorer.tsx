@@ -13,6 +13,7 @@ import {
   formatDateTime,
   formatMoneyWithAsset,
 } from "@/lib/format";
+import { ReversePanel } from "@/components/reverse-panel";
 import type { Transaction, TransactionStatus } from "@/lib/types";
 
 const STATUS_TONE: Record<TransactionStatus, BadgeTone> = {
@@ -36,8 +37,11 @@ const SELECT_CLASSES =
 
 export function TransactionsExplorer({
   transactions,
+  onReversed,
 }: {
   transactions: Transaction[];
+  /** Live data only: enables the reverse action; called after a reversal posts. */
+  onReversed?: () => void;
 }) {
   const [statusFilter, setStatusFilter] = useState<TransactionStatus | "all">(
     "all",
@@ -263,6 +267,17 @@ export function TransactionsExplorer({
                   double-entry engine.
                 </p>
               </div>
+
+              {onReversed && (selected.status === "posted" || selected.status === "reversed") && !selected.reverses && (
+                <ReversePanel
+                  key={selected.id}
+                  transactionId={selected.id}
+                  asset={selected.asset}
+                  exponent={selected.exponent}
+                  totalUnits={BigInt(selected.amountUnits)}
+                  onReversed={onReversed}
+                />
+              )}
 
               <div className="rounded-lg border border-edge bg-surface-raised px-4 py-3">
                 <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">

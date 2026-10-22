@@ -75,6 +75,11 @@ export interface ApiTransaction {
   metadata: Record<string, string>;
   reversed_by: string | null;
   reverses: string | null;
+  /** Effective reversal state; only on GET /v1/transactions/{id}. */
+  reversal?: {
+    effective_status: "posted" | "partially_reversed" | "reversed";
+    reversed_amount?: Money;
+  };
   effective_at: string;
   created_at: string;
   posted_at: string | null;
@@ -112,6 +117,9 @@ export interface ApiAssetBalance {
 
 export interface ApiStatementEntry {
   id: string;
+  /** Present on a parent-account statement: the account the entry hit. */
+  account_id?: string;
+  account_path?: string;
   transaction_id: string;
   reference?: string;
   direction: Direction;
@@ -223,22 +231,57 @@ export function getBalances(accountId: string): Promise<{ data: ApiBalance[] }> 
   );
 }
 
+export interface TransactionFilters {
+  ledger_id?: string;
+  status?: ApiTxnStatus;
+  /** A parent account matches its whole subtree. */
+  account_id?: string;
+  metadata_key?: string;
+  metadata_value?: string;
+}
+
 export function listTransactions(
   cursor?: string,
   limit = 25,
+  filters: TransactionFilters = {},
 ): Promise<Page<ApiTransaction>> {
-  const q = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
-  return apiFetch<Page<ApiTransaction>>(`/v1/transactions?limit=${limit}${q}`);
+  return apiFetch<Page<ApiTransaction>>(
+    `/v1/transactions${queryString({ ...filters, limit, cursor })}`,
+  );
+}
+
+export function getTransaction(id: string): Promise<ApiTransaction> {
+  return apiFetch(`/v1/transactions/${encodeURIComponent(id)}`);
+}
+
+/** Reverses a posted transaction; `amount` makes it a partial reversal (6.12). */
+export function reverseTransaction(
+  id: string,
+  body: { idempotency_key: string; reason?: string; amount?: Money },
+): Promise<ApiTransaction> {
+  return apiFetch(`/v1/transactions/${encodeURIComponent(id)}/reverse`, {
+    method: "POST",
+    body,
+  });
+}
+
+export interface StatementFilters {
+  /** RFC 3339; the API defaults to `to` minus 30 days. */
+  from?: string;
+  /** RFC 3339; the API defaults to now. */
+  to?: string;
+  metadata_key?: string;
+  metadata_value?: string;
 }
 
 export function getStatement(
   accountId: string,
   cursor?: string,
   limit = 100,
+  filters: StatementFilters = {},
 ): Promise<ApiStatement> {
-  const q = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
   return apiFetch<ApiStatement>(
-    `/v1/statements?account_id=${encodeURIComponent(accountId)}&limit=${limit}${q}`,
+    `/v1/statements${queryString({ account_id: accountId, limit, cursor, ...filters })}`,
   );
 }
 
@@ -312,9 +355,10 @@ export interface LiveTransactionsPage {
 
 export async function loadTransactionsPage(
   cursor?: string,
+  filters: TransactionFilters = {},
 ): Promise<LiveTransactionsPage> {
   const [txns, ledgers] = await Promise.all([
-    listTransactions(cursor, 25),
+    listTransactions(cursor, 25, filters),
     listLedgers(),
   ]);
   const ledgerNames = Object.fromEntries(
@@ -570,4 +614,24 @@ export function closeMovement(
     method: "POST",
     body: { outcome },
   });
+}
+
+// ---- Provider positions -------------------------------------------------------
+
+export interface ProviderPosition {
+  provider: string;
+  positions: Array<{
+    asset: string;
+    exponent: number;
+    net: string;
+    direction: "they_owe_us" | "we_owe_them" | "flat";
+    accounts: string[];
+  }>;
+}
+
+export function listProviderPositions(): Promise<{
+  data: ProviderPosition[];
+  hint?: string;
+}> {
+  return apiFetch("/v1/provider-positions");
 }

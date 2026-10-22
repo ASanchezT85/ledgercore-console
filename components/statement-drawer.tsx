@@ -18,6 +18,7 @@ import {
   type ApiStatementEntry,
   assetExponent,
   getStatement,
+  type StatementFilters,
 } from "@/lib/live";
 
 type State =
@@ -102,17 +103,34 @@ export function StatementDrawer({
   onClose: () => void;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [applied, setApplied] = useState<StatementFilters>({});
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [metaKey, setMetaKey] = useState("");
+  const [metaValue, setMetaValue] = useState("");
+  const pairOk = (metaKey.trim() === "") === (metaValue.trim() === "");
+
+  function apply() {
+    if (!pairOk) return;
+    setApplied({
+      from: from ? new Date(from).toISOString() : undefined,
+      to: to ? new Date(to).toISOString() : undefined,
+      metadata_key: metaKey.trim() || undefined,
+      metadata_value: metaValue.trim() || undefined,
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
+    setState({ status: "loading" });
     (async () => {
       try {
         // Follow the cursor so the export covers the whole period.
-        const first = await getStatement(accountId);
+        const first = await getStatement(accountId, undefined, 100, applied);
         const entries = [...first.entries];
         let cursor = first.next_cursor;
         while (cursor && entries.length < 1000) {
-          const page = await getStatement(accountId, cursor);
+          const page = await getStatement(accountId, cursor, 100, applied);
           entries.push(...page.entries);
           cursor = page.next_cursor;
         }
@@ -128,7 +146,7 @@ export function StatementDrawer({
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, applied]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -164,6 +182,43 @@ export function StatementDrawer({
           </div>
         </header>
 
+        <form
+          className="mb-4 grid grid-cols-2 gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            apply();
+          }}
+        >
+          {(
+            [
+              ["From", "datetime-local", from, setFrom],
+              ["To", "datetime-local", to, setTo],
+              ["Metadata key", "text", metaKey, setMetaKey],
+              ["Metadata value", "text", metaValue, setMetaValue],
+            ] as const
+          ).map(([label, type, value, set]) => (
+            <label key={label} className="space-y-1 text-[11px] text-ink-faint">
+              {label}
+              <input
+                type={type}
+                value={value}
+                onChange={(e) => set(e.target.value)}
+                className="h-8 w-full rounded-(--radius-control) border border-edge-strong bg-surface-raised px-2 text-xs text-ink"
+              />
+            </label>
+          ))}
+          <div className="col-span-2 flex items-center gap-3">
+            <Button type="submit" size="sm" variant="outline" disabled={!pairOk}>
+              Apply
+            </Button>
+            {!pairOk && (
+              <span className="text-xs text-danger">
+                Metadata needs both key and value.
+              </span>
+            )}
+          </div>
+        </form>
+
         {state.status === "loading" && (
           <p className="py-8 text-center text-sm text-ink-faint">Loading…</p>
         )}
@@ -177,8 +232,7 @@ export function StatementDrawer({
             <p className="mb-3 text-xs text-ink-faint">
               Period{" "}
               {new Date(state.statement.period.from).toLocaleDateString()} —{" "}
-              {new Date(state.statement.period.to).toLocaleDateString()} (last
-              30 days)
+              {new Date(state.statement.period.to).toLocaleDateString()} {applied.from || applied.to ? "" : "(last 30 days)"}
             </p>
             <BalanceRow
               label="Opening balance"
@@ -199,6 +253,11 @@ export function StatementDrawer({
                     <p className="truncate font-mono text-xs text-ink">
                       {e.reference || e.transaction_id}
                     </p>
+                    {e.account_path && (
+                      <p className="truncate font-mono text-[11px] text-ink-muted">
+                        {e.account_path}
+                      </p>
+                    )}
                     <p className="text-[11px] text-ink-faint">
                       {new Date(e.effective_at).toLocaleString()}
                     </p>

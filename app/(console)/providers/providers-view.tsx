@@ -27,6 +27,7 @@ import {
   freezeProvider,
   getExposureMatrix,
   getProviderExposure,
+  listProviderPositions,
   unfreezeProvider,
   type ApiExposureMatrix,
   type ApiProviderExposure,
@@ -321,6 +322,60 @@ function MatrixCard({ ledgerId }: { ledgerId: string }) {
   );
 }
 
+const DIRECTION_TEXT = {
+  they_owe_us: "they owe us",
+  we_owe_them: "we owe them",
+  flat: "flat",
+} as const;
+
+function PositionsCard() {
+  const state = useLiveData(listProviderPositions);
+  return (
+    <Card
+      title="Provider positions"
+      subtitle="Net position against each counterparty across the tenant, from running balances"
+      flush
+    >
+      {state.status === "loading" && (
+        <p className="px-5 py-6 text-sm text-ink-faint">Loading…</p>
+      )}
+      {state.status === "down" && <ApiDownBanner onRetry={state.reload} />}
+      {state.status === "error" && (
+        <ErrorBanner message={state.message} onRetry={state.reload} />
+      )}
+      {state.status === "live" && state.data.data.length === 0 && (
+        <p className="px-5 py-6 text-sm text-ink-muted">
+          {state.data.hint ?? "No provider accounts found."}
+        </p>
+      )}
+      {state.status === "live" && state.data.data.length > 0 && (
+        <Table>
+          <THead>
+            <TH>Provider</TH>
+            <TH>Asset</TH>
+            <TH className="text-right">Net</TH>
+            <TH>Direction</TH>
+            <TH className="text-right">Accounts</TH>
+          </THead>
+          <TBody>
+            {state.data.data.flatMap((p) =>
+              p.positions.map((pos) => (
+                <TR key={`${p.provider}/${pos.asset}`}>
+                  <TD className="font-mono text-xs text-ink">{p.provider}</TD>
+                  <TD>{pos.asset}</TD>
+                  <TD className="num text-right">{money(pos.net, pos.asset, pos.exponent)}</TD>
+                  <TD>{DIRECTION_TEXT[pos.direction]}</TD>
+                  <TD className="num text-right">{pos.accounts.length}</TD>
+                </TR>
+              )),
+            )}
+          </TBody>
+        </Table>
+      )}
+    </Card>
+  );
+}
+
 function LedgerProviders({ ledgerId }: { ledgerId: string }) {
   const state = useLiveData(() => getProviderExposure(ledgerId));
   const [action, setAction] = useState<Action | null>(null);
@@ -369,7 +424,12 @@ export function ProvidersView() {
       subtitle="Provider exposure, customer-fund backing and provider freeze per ledger"
       demoNote="Sign in to see provider exposure for your ledgers."
     >
-      {(ledger) => <LedgerProviders ledgerId={ledger.id} />}
+      {(ledger) => (
+        <>
+          <LedgerProviders ledgerId={ledger.id} />
+          <PositionsCard />
+        </>
+      )}
     </LedgerScope>
   );
 }

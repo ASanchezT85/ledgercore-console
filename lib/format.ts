@@ -97,3 +97,17 @@ export function formatInt(value: number): string {
 export function formatPct(value: number): string {
   return `${value.toFixed(2)}%`;
 }
+
+/**
+ * Parses a decimal amount typed by a person ("12.5") into integer minor units
+ * for an asset with `exponent` decimals. Null when it is not a positive amount
+ * with at most `exponent` decimals.
+ */
+export function parseMinorUnits(input: string, exponent: number): bigint | null {
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(input.trim());
+  if (!m) return null;
+  const frac = m[2] ?? "";
+  if (frac.length > exponent) return null;
+  const units = BigInt(m[1] + frac.padEnd(exponent, "0"));
+  return units > 0n ? units : null;
+}
