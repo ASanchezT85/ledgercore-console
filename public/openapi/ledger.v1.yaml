@@ -430,10 +430,16 @@ paths:
           custody is below zero; a provider cannot hold negative money.
 
         Per-provider backing has no owner meaning in a pool, so under
-        `pro_rata_pool` these are the whole check. Under `by_provider` the
-        per-holder check (a holder's portion at a provider above its custody)
-        needs the traced movements of ADR-019 and is not built yet. An account
-        that names a provider is the provider's, never a holder's.
+        `pro_rata_pool` these are the whole check. Under `by_provider` it adds:
+
+        - `provider_shortfall` (per provider and asset): the holders' traced
+          portions at the provider (the `by_provider` rows of
+          `exposure-matrix`, transit included) are more than its customer
+          assets (`custody` + `claims`). A fee the provider kept out of
+          customer money (a settlement that delivered less than it took) shows
+          here, at the provider that received less.
+
+        An account that names a provider is the provider's, never a holder's.
 
         **As of a date.** Like `/coverage`: with `as_of` the sums are rebuilt
         from the postings with `effective_at <= as_of`, using the `fund_class`
@@ -488,8 +494,18 @@ paths:
           positive customer custody weigh (a negative one is a `break` of
           `provider-exposure`; `claims` never weigh). The shares of a holder add
           up to its balance exactly (the cents go to the largest remainders).
-        - `by_provider`: accepted as a rule, but its fold over the traced
-          movements of ADR-019 is not built yet: 501 `not_available_yet`.
+        - `by_provider`: a fold over the ledger's postings in commit order
+          that keeps a portion per (holder, provider). Money in through P is
+          P's; a debit of a holder takes from its portion at the provider the
+          money leaves through first, then pro rata; P2P and stages into and
+          out of a movement's transit carry the portions along; a treasury
+          write with no holder leg (a settlement, a rebalance) moves every
+          holder's portion at P to Q pro rata in one step. Which provider a
+          stage belongs to comes from its movement (ADR-019), so a
+          `complete` that only debits transit is still P's. Money no provider
+          received yet (the bought currency of a conversion) is `unplaced`
+          until treasury books it into a custody. The transit of movements in
+          flight is in the `holder: ""` row.
         - Not configured: 409 `loss_allocation_not_configured`. There is no
           default (`PUT /v1/ledgers/{id}/custody-policy`).
 
@@ -553,19 +569,6 @@ paths:
                     error:
                       code: loss_allocation_not_configured
                       message: 'domain: loss_allocation is not configured for this ledger'
-                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
-        '501':
-          description: The ledger's rule is `by_provider` and its matrix is not built yet (`not_available_yet`).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                byProvider:
-                  value:
-                    error:
-                      code: not_available_yet
-                      message: 'domain: not available yet: the by_provider matrix needs the traced movements of ADR-019 (step 2)'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
 
   /v1/ledgers/{id}/coverage:
@@ -4660,7 +4663,7 @@ components:
             properties:
               kind:
                 type: string
-                enum: [ledger_shortfall, negative_custody]
+                enum: [ledger_shortfall, negative_custody, provider_shortfall]
               provider:
                 type: string
                 description: Absent for `ledger_shortfall`.

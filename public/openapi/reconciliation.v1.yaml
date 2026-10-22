@@ -1663,8 +1663,9 @@ components:
             `balance_mismatch` is a custody snapshot whose reported balance differs from the ledger's.
             `settlement_mismatch` is a settlement batch whose payout or captures do not add up.
             `provider_backing_break` is customer funds that no provider backs, reported by the ledger
-            (`ledger.provider_backing.broken`, ADR-020): a ledger-level shortfall, or a provider with negative
-            customer custody. It belongs to the tenant's system source `ledger:provider-backing`, has no run,
+            (`ledger.provider_backing.broken`, ADR-020): a ledger-level shortfall, a provider with negative
+            customer custody or, under `by_provider`, holders' traced portions at a provider above its customer
+            assets (`provider_shortfall`). It belongs to the tenant's system source `ledger:provider-backing`, has no run,
             and `details` carries `ledger_id`, `break_kind`, `provider`, `asset` and `amount`. One unresolved
             exception exists per break.
             `movement_transit_residual` is a staged movement that closed with transit left (ADR-019 section 4,
