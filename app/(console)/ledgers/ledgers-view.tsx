@@ -374,7 +374,7 @@ export function LedgersView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">
+          <h1 className="font-serif text-2xl tracking-tight text-ink">
             Ledgers
           </h1>
           <p className="mt-0.5 text-sm text-ink-faint">

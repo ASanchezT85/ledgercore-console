@@ -39,7 +39,7 @@ export function LedgerScope({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">{title}</h1>
+          <h1 className="font-serif text-2xl tracking-tight text-ink">{title}</h1>
           <p className="mt-0.5 text-sm text-ink-faint">{subtitle}</p>
         </div>
         <DemoBadge demo={state.status === "demo"} />

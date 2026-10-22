@@ -21,6 +21,7 @@ import {
 } from "@/components/live";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { BalanceBeam, MirrorBars, type MirrorPoint } from "@/components/ui/charts";
 import { StatTile } from "@/components/ui/stat-tile";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import {
@@ -60,6 +61,26 @@ const HEALTH_LABEL: Record<ReconSourceStatus, string> = {
   critical: "critical",
 };
 
+// Demo series: daily inflows (debits to custody) and outflows (credits), in
+// thousands of USD. Illustrative, like the rest of the demo dataset.
+const DEMO_FLOWS: MirrorPoint[] = ([
+  [182, 120], [205, 141], [198, 133], [231, 160], [224, 150], [260, 171], [248, 166],
+  [271, 180], [265, 176], [290, 192], [284, 188], [312, 205], [305, 199], [338, 221],
+] as const).map(([up, down], i) => ({ label: `Oct ${9 + i}`, up, down }));
+
+/** Posted vs reversed/discarded transactions per day, from the loaded page. */
+function dailyActivity(txns: LiveDashboard["transactions"]): MirrorPoint[] {
+  const days = new Map<string, MirrorPoint>();
+  for (const t of [...txns].reverse()) {
+    const label = t.created_at.slice(5, 10);
+    const p = days.get(label) ?? { label, up: 0, down: 0 };
+    if (t.status === "posted") p.up += 1;
+    else if (t.status === "reversed" || t.status === "discarded") p.down += 1;
+    days.set(label, p);
+  }
+  return [...days.values()];
+}
+
 const CREATE_LEDGER_CURL = `curl -s -X POST $API/v1/ledgers \\
   -H "Authorization: Bearer $TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -69,7 +90,7 @@ function Header({ demo }: { demo: boolean }) {
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">
+        <h1 className="font-serif text-2xl tracking-tight text-ink">
           Dashboard
         </h1>
         <p className="mt-0.5 text-sm text-ink-faint">
@@ -99,6 +120,7 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
   const balancedTotals = data.trial?.totals ?? [];
   const allBalanced =
     balancedTotals.length > 0 && balancedTotals.every((t) => t.balanced);
+  const activity = dailyActivity(data.transactions);
 
   return (
     <>
@@ -148,6 +170,12 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
           tone={data.trial === null ? "sky" : allBalanced ? "emerald" : "red"}
         />
       </div>
+
+      {activity.length > 1 && (
+        <Card title="Activity" subtitle="Posted vs reversed or discarded, per day (latest transactions)">
+          <MirrorBars points={activity} upLabel="Posted" downLabel="Reversed / discarded" />
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card
@@ -244,7 +272,7 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     <div className="rounded-lg border border-edge bg-surface-raised px-3 py-2">
-                      <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
+                      <p className="text-[10px] font-semibold tracking-wider text-debit uppercase">
                         Debits
                       </p>
                       <p className="num mt-0.5 text-sm font-medium text-ink">
@@ -256,7 +284,7 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
                       </p>
                     </div>
                     <div className="rounded-lg border border-edge bg-surface-raised px-3 py-2">
-                      <p className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
+                      <p className="text-[10px] font-semibold tracking-wider text-credit uppercase">
                         Credits
                       </p>
                       <p className="num mt-0.5 text-sm font-medium text-ink">
@@ -267,6 +295,9 @@ function LiveDashboardView({ data }: { data: LiveDashboard }) {
                         )}
                       </p>
                     </div>
+                  </div>
+                  <div className="mt-3">
+                    <BalanceBeam debits={BigInt(total.debits)} credits={BigInt(total.credits)} />
                   </div>
                 </li>
               ))}
@@ -314,6 +345,10 @@ function DemoDashboardView() {
           tone="red"
         />
       </div>
+
+      <Card title="Money in and out" subtitle="Daily inflows (debits to custody) and outflows (credits), last 14 days, USD thousands">
+        <MirrorBars points={DEMO_FLOWS} upLabel="Inflows" downLabel="Outflows" format={(n) => `${Math.round(n)}k`} />
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card

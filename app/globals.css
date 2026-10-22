@@ -159,6 +159,21 @@ body {
  * Solo se animan `opacity` y `transform`: las dos que no disparan layout.
  */
 @media (prefers-reduced-motion: no-preference) {
+  /* Brand charts (components/ui/charts.tsx): bars fade up out of the
+     debit/credit axis, the balance beam settles. */
+  .lc-bars g {
+    animation: lc-rise 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .lc-beam {
+    transform-origin: center;
+    animation: lc-settle 1.4s cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+  }
+  @keyframes lc-settle {
+    from {
+      transform: rotate(-2.5deg);
+    }
+  }
+
   @keyframes lc-rise {
     from {
       opacity: 0;

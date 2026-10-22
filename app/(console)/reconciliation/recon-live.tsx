@@ -403,7 +403,7 @@ export function ReconLive() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Reconciliation</h1>
+        <h1 className="font-serif text-2xl tracking-tight text-ink">Reconciliation</h1>
         <p className="mt-0.5 text-sm text-ink-faint">Match external statements against the ledger and triage what does not match</p>
       </div>
       <div role="group" aria-label="Reconciliation" className="flex gap-1.5">
