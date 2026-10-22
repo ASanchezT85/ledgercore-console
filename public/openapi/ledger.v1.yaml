@@ -294,8 +294,13 @@ paths:
         customers, per asset of the ledger:
 
         - `customer_assets`: posted balance (debits - credits) of the
-          ledger's `asset` accounts with `fund_class: customer` — the bank or
-          safeguarding accounts that hold customer money.
+          ledger's `asset` accounts with `fund_class: customer` and
+          `liquidity: liquid` — the bank or safeguarding accounts that hold
+          customer money and can pay it out now.
+        - `customer_claims`: posted balance of the `asset` accounts with
+          `fund_class: customer` and `liquidity: claim` — money that may take
+          years to collect (a receivable from a failed provider, say). Reported
+          apart; it never counts as backing.
         - `customer_liabilities`: posted balance (credits - debits) of its
           `liability` accounts with `fund_class: customer` — wallets and
           other balances owed to customers. Only accounts with a positive
@@ -317,7 +322,7 @@ paths:
         **As of a date.** Without `as_of` the report is read from the running
         `account_balances`. With `as_of` it is rebuilt from the postings
         whose transaction has `effective_at <= as_of` (posted or later
-        reversed, like `trial-balance?as_of=`) **using the `fund_class` each
+        reversed, like `trial-balance?as_of=`) **using the `fund_class` and `liquidity` each
         account had at `as_of`**: reclassifying an account afterwards does
         not change the report for an earlier date. The class history comes
         from the audit log (`account.update`), so a change made straight in
@@ -353,6 +358,7 @@ paths:
                         exponent: 2
                         customer_assets: '50000'
                         customer_liabilities: '42000'
+                        customer_claims: '0'
                         customer_receivables: '0'
                         negative_accounts: 0
                         covered: true
@@ -360,6 +366,7 @@ paths:
                       - asset: USD
                         exponent: 2
                         customer_assets: '5000'
+                        customer_claims: '4000'
                         customer_liabilities: '9700'
                         customer_receivables: '500'
                         negative_accounts: 1
@@ -377,8 +384,8 @@ paths:
         Stores the ledger's coverage report as of `as_of` (see
         `GET /v1/ledgers/{id}/coverage?as_of=`) as an immutable snapshot with
         a `snapshot_hash`: the SHA-256, in hex, of its canonical JSON
-        (`ledgercore.coverage.v1`: format, ledger, `as_of` in UTC and the
-        per-asset sums, rows sorted by asset). Snapshots are append-only (the
+        (`ledgercore.coverage.v2`: format, ledger, `as_of` in UTC and the
+        per-asset sums, `customer_claims` included, rows sorted by asset). Snapshots are append-only (the
         database rejects UPDATE and DELETE), so the report a regulator
         received for a month-end stays exactly that. Taking the same `as_of`
         again adds another snapshot, with the same hash unless history
@@ -628,10 +635,11 @@ paths:
     patch:
       operationId: updateAccount
       tags: [Accounts]
-      summary: Freeze, unfreeze or close an account, or change its overdraft policy or fund class
+      summary: Freeze, unfreeze or close an account, or change its overdraft policy, fund class or liquidity
       description: |
-        Changes the account's `status`, `allow_negative` and/or `fund_class`;
-        send at least one. Fields left out keep their value. Requires the
+        Changes the account's `status`, `allow_negative`, `fund_class` and/or
+        `liquidity` (a `claim` is for assets only, 400 otherwise); send at least
+        one. Fields left out keep their value. Requires the
         `ledger:write` scope. Every change also leaves an `audit_log` row
         (`account.update`) with the previous and the new values.
 
@@ -3541,6 +3549,17 @@ components:
           items: { type: string, minLength: 1, maxLength: 64 }
           description: Keys accepted on new accounts.
 
+    Liquidity:
+      type: string
+      enum: [liquid, claim]
+      description: |
+        Whether a customer `asset` account is cash that can back what is owed
+        now (`liquid`) or a claim that may take years to collect (`claim`).
+        Only `asset` accounts may be `claim`; any other type is refused with
+        400. Defaults to `liquid`; accounts that existed before this field are
+        `liquid`, so nothing that backed customers stops backing them until an
+        operator marks an account `claim`.
+
     FundClass:
       type: string
       enum: [customer, own]
@@ -3573,7 +3592,7 @@ components:
 
     CoverageRow:
       type: object
-      required: [asset, exponent, customer_assets, customer_liabilities, customer_receivables, negative_accounts, covered, shortfall]
+      required: [asset, exponent, customer_assets, customer_claims, customer_liabilities, customer_receivables, negative_accounts, covered, shortfall]
       properties:
         asset:
           $ref: '#/components/schemas/AssetCode'
@@ -3581,7 +3600,10 @@ components:
           type: integer
         customer_assets:
           type: string
-          description: Posted debits - credits of the customer-class asset accounts, minor units.
+          description: Posted debits - credits of the customer-class asset accounts with liquidity liquid, minor units.
+        customer_claims:
+          type: string
+          description: Posted debits - credits of the customer-class asset accounts with liquidity claim, minor units. Reported apart; not backing.
         customer_liabilities:
           type: string
           description: Sum of the positive posted balances (credits - debits) of the customer-class liability accounts, minor units. Accounts in the red do not subtract from it.
@@ -3630,7 +3652,7 @@ components:
           description: The actor, e.g. `api_key:<id>`.
         snapshot_hash:
           type: string
-          description: SHA-256 (hex) of the canonical report, `ledgercore.coverage.v1`. Published by the daily anchor.
+          description: SHA-256 (hex) of the canonical report, `ledgercore.coverage.v2`. Published by the daily anchor.
         covered:
           type: boolean
           description: True when every asset is covered.
@@ -3676,6 +3698,8 @@ components:
             existed before this field are `true`.
         fund_class:
           $ref: '#/components/schemas/FundClass'
+        liquidity:
+          $ref: '#/components/schemas/Liquidity'
         transit:
           type: boolean
           default: false
@@ -3701,10 +3725,12 @@ components:
           description: Overdraft policy; see `AccountCreate.allow_negative`.
         fund_class:
           $ref: '#/components/schemas/FundClass'
+        liquidity:
+          $ref: '#/components/schemas/Liquidity'
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, transit, postable, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, liquidity, transit, postable, created_at]
       properties:
         id:
           type: string
@@ -3725,6 +3751,8 @@ components:
           description: Overdraft policy; see `AccountCreate.allow_negative`.
         fund_class:
           $ref: '#/components/schemas/FundClass'
+        liquidity:
+          $ref: '#/components/schemas/Liquidity'
         transit:
           type: boolean
           description: Whether this is a transit account; see `AccountCreate.transit`.
