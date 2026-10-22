@@ -291,7 +291,8 @@ paths:
       summary: Declare a settlement batch
       description: |
         Declares what a PSP reports for one settlement: `gross` captured,
-        `fees` kept, so `net = gross - fees` is paid out. The batch is an
+        `fees` kept, `chargebacks` and `refunds` netted, so
+        `net = gross - fees - chargebacks - refunds` is paid out. The batch is an
         expectation that is checked, never consumed (ADR-011).
 
         **Evaluation** runs when the batch is created and again on every run
@@ -299,19 +300,30 @@ paths:
 
         - No statement row with `external_ref` equal to `batch_ref` yet: it
           stays `open` (captures and payouts arrive on their own schedule).
-        - The payout row exists, equals `net` in the batch asset, and the
-          ledger captures add up to `gross`: `settled`.
+        - The payout row exists, equals `net` in the batch asset, the
+          ledger captures add up to `gross` and the linked reversals add up
+          to `chargebacks + refunds`: `settled`.
         - Anything else (wrong amount or asset, captures different from
-          `gross`, the payout repeated): `mismatched`, and a `high`
+          `gross`, reversals different from `chargebacks + refunds`, the
+          payout repeated): `mismatched`, and a `high`
           `settlement_mismatch` discrepancy is opened (`discrepancy_id`).
 
         `settled` and `mismatched` are final: the batch is never evaluated
         again. **Captures** are the debit legs on `account_id` whose
         transaction metadata `metadata_key` equals `batch_ref`; the ledger's
         own payout booking (a credit on the same account) is not a capture.
-        Refunds inside a batch are not netted. The payout row is only
+        **Chargebacks and refunds** are the credit legs on `account_id` of
+        *linked reversals* (`POST /v1/transactions/{id}/reverse`, full or
+        partial, which keeps `reverses` to the original deposit) whose
+        metadata `metadata_key` equals `batch_ref`: reverse the capture with
+        that metadata. The ledger cannot tell a chargeback from a refund, so
+        they are checked together against `chargebacks + refunds`; the split
+        is the PSP's declaration. Reversals mirrored before recon migration
+        `0013` carry no link and never count. The payout row is only
         referenced, so matching still pairs it with the ledger's payout
-        posting.
+        posting (the default matcher pairs `external_ref` with the posting's
+        idempotency key, so the payout posting must use `batch_ref` as its
+        key, or a `group_by=metadata` rule must be used).
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -331,6 +343,8 @@ paths:
                   asset: USD
                   gross: '100000'
                   fees: '2900'
+                  chargebacks: '5000'
+                  refunds: '0'
       responses:
         '201':
           description: Batch created and evaluated once.
@@ -349,9 +363,12 @@ paths:
                     asset: USD
                     gross: '100000'
                     fees: '2900'
-                    net: '97100'
+                    chargebacks: '5000'
+                    refunds: '0'
+                    net: '92100'
                     status: open
                     captured: '100000'
+                    reversed: '5000'
                     payout_external_id: null
                     discrepancy_id: null
                     evaluated_at: '2026-10-19T12:00:00Z'
@@ -1442,11 +1459,23 @@ components:
           type: string
           pattern: '^[0-9]{1,19}$'
           default: '0'
-          description: Fees the PSP kept, minor units, as a string; at most `gross`.
+          description: Fees the PSP kept, minor units, as a string.
+        chargebacks:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          default: '0'
+          description: Chargebacks the PSP deducted from the payout, minor units, as a string.
+        refunds:
+          type: string
+          pattern: '^[0-9]{1,19}$'
+          default: '0'
+          description: |
+            Refunds the PSP deducted from the payout, minor units, as a
+            string. `fees + chargebacks + refunds` must not exceed `gross`.
 
     SettlementBatch:
       type: object
-      required: [id, source_id, batch_ref, account_id, metadata_key, asset, gross, fees, net, status, captured, payout_external_id, discrepancy_id, evaluated_at, created_at]
+      required: [id, source_id, batch_ref, account_id, metadata_key, asset, gross, fees, chargebacks, refunds, net, status, captured, reversed, payout_external_id, discrepancy_id, evaluated_at, created_at]
       properties:
         id:
           type: string
@@ -1469,14 +1498,23 @@ components:
         fees:
           type: string
           description: Minor units.
+        chargebacks:
+          type: string
+          description: Minor units.
+        refunds:
+          type: string
+          description: Minor units.
         net:
           type: string
-          description: '`gross - fees`, minor units: what the payout must equal.'
+          description: '`gross - fees - chargebacks - refunds`, minor units: what the payout must equal.'
         status:
           $ref: '#/components/schemas/BatchStatus'
         captured:
           type: [string, 'null']
           description: Sum of the ledger captures at the last evaluation, minor units; null before the first.
+        reversed:
+          type: [string, 'null']
+          description: Sum of the credit legs of linked reversals tagged with the batch at the last evaluation (the ledger side of `chargebacks + refunds`), minor units; null before the first.
         payout_external_id:
           type: [string, 'null']
           format: uuid
