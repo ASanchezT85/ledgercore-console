@@ -425,3 +425,45 @@ export async function regenerateRecoveryCodes(code: string): Promise<string[]> {
   const res = await twoFactorCall<{ recovery_codes: string[] }>("auth/2fa/recovery-codes", { code });
   return res.recovery_codes;
 }
+
+// ---- Step-up (7.14, ADR-030) -----------------------------------------------
+//
+// ledger-core answers 403 step_up_required when a console user posts at or
+// above a ledger's threshold without a fresh code. A code buys a 5-minute
+// token carrying step_up_at; it replaces the session token until it expires,
+// so the retried write (and any other in the next minutes) goes through.
+
+/** Proves a fresh TOTP code and switches to the elevated token. CodeError when the code is wrong or reused. */
+export async function stepUp(code: string): Promise<void> {
+  let res;
+  try {
+    res = await identityFetch<{ access_token: string; expires_in: number }>(
+      "POST",
+      "auth/2fa/step-up",
+      { code },
+      { csrf: true },
+    );
+  } catch (err) {
+    if (err instanceof IdentityError && err.status === 401) {
+      if (err.message.includes("code")) throw new CodeError();
+      forget();
+      throw new AuthError("no_session");
+    }
+    throw err;
+  }
+  memToken = res.access_token;
+  memTokenExp = Date.now() + res.expires_in * 1000;
+}
+
+type StepUpHandler = () => Promise<boolean>;
+let stepUpHandler: StepUpHandler | null = null;
+
+/** The mounted step-up dialog registers itself here; it resolves true once the user stepped up. */
+export function setStepUpHandler(h: StepUpHandler | null) {
+  stepUpHandler = h;
+}
+
+/** Asks the user for a code; false when there is no dialog or they cancel. */
+export function requestStepUp(): Promise<boolean> {
+  return stepUpHandler ? stepUpHandler() : Promise.resolve(false);
+}

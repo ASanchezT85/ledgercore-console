@@ -926,6 +926,61 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyAttempts' }
 
+  /v1/auth/2fa/step-up:
+    post:
+      operationId: stepUp
+      tags: [Console]
+      summary: Prove a fresh TOTP code before a large money write
+      description: |
+        Step-up ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+        Needs an **active** session and a fresh TOTP `code` (a time step not
+        used before; recovery codes are not accepted). Same progressive
+        lockout as the login factor: while the account or the IP is locked
+        the answer is 429, a wrong code counts against both and is audited
+        `2fa.failed`. Success is audited `2fa.step_up`.
+
+        Returns a token like `POST /v1/auth/session/token` that also carries
+        `step_up_at` (unix seconds) and lives **5 minutes**. ledger-core
+        accepts it for writes at or above a ledger's step-up threshold, which
+        otherwise answer `403 step_up_required`; the services check the age
+        of `step_up_at` themselves, so the elevation never outlives 5 minutes.
+      security:
+        - consoleSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TwoFactorCode'
+      responses:
+        '200':
+          description: "Elevated JWT. `Cache-Control: no-store`."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    const: Bearer
+                  expires_in:
+                    type: integer
+                    const: 300
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: No authenticator is enrolled (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429': { $ref: '#/components/responses/TooManyAttempts' }
+
   /v1/auth/invitations/accept:
     post:
       operationId: acceptInvitation
@@ -1878,7 +1933,7 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                period_closed, approval_required, self_approval,
+                period_closed, approval_required, self_approval, step_up_required,
                 request_hash_mismatch, rate_limited,
                 service_unavailable, internal, signature_missing,
                 signature_invalid, timestamp_skew, nonce_reused,

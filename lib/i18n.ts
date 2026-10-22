@@ -289,6 +289,16 @@ const es = {
       busy: "Verificando…",
     },
   },
+  stepUp: {
+    title: "Confirma con tu autenticador",
+    intro: "Esta operación alcanza el umbral de confirmación del ledger. Escribe el código de 6 dígitos de tu app de autenticación; vale 5 minutos.",
+    codeLabel: "Código",
+    confirm: "Confirmar",
+    cancel: "Cancelar",
+    invalid: "Código incorrecto o ya usado. Espera el siguiente.",
+    locked: "Demasiados intentos. Vuelve a intentarlo en unos minutos.",
+    failed: "No se pudo verificar el código.",
+  },
   register: {
     metaTitle: "Crear cuenta · LedgerCore",
     title: "Crea tu cuenta",
@@ -812,6 +822,16 @@ const en: typeof es = {
       submit: "Verify",
       busy: "Verifying…",
     },
+  },
+  stepUp: {
+    title: "Confirm with your authenticator",
+    intro: "This operation reaches the ledger's confirmation threshold. Type the 6-digit code from your authenticator app; it lasts 5 minutes.",
+    codeLabel: "Code",
+    confirm: "Confirm",
+    cancel: "Cancel",
+    invalid: "Wrong or already used code. Wait for the next one.",
+    locked: "Too many attempts. Try again in a few minutes.",
+    failed: "The code could not be checked.",
   },
   register: {
     metaTitle: "Create account · LedgerCore",

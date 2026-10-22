@@ -466,6 +466,50 @@
               }
             },
             {
+              "name": "Ask console users for a fresh second factor above an amount",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"thresholds\": {\n    \"USD\": 1000000\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/step-up-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "step-up-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Sets the ledger's `step_up_thresholds` ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)):\nper asset, the gross amount in minor units (the sum of the\ntransaction's debits in that asset) at or above which a **console\nuser** must hold a step-up elevation to post. It applies to every\nwrite that posts a transaction: a posted transaction, posting a\ndraft, a reversal, posting events and groups, ledger transfers (each\nside against its own ledger) and executing an adjustment request.\nWithout the elevation the write answers `403 step_up_required` and\nwrites nothing. Signed requests with an API credential are never\nasked: the signature, scopes and IP allow-list are their control.\n\n`{}` turns step-up off, the default. At most 100 assets, each value\ngreater than zero. While a policy is on, changing or removing it also\nneeds the elevation, so a stolen session cannot switch it off first.\nEach change leaves an `audit_log` row\n(`ledger.step_up_policy.update`) with the previous and new\nthresholds. Requires the `ledger:write` scope."
+              }
+            },
+            {
               "name": "What each provider holds, and whether customer funds are backed",
               "request": {
                 "method": "GET",

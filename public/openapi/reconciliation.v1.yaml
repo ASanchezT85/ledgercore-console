@@ -1279,7 +1279,7 @@ components:
                 not_found, conflict, idempotency_conflict,
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
-                period_closed, approval_required, self_approval,
+                period_closed, approval_required, self_approval, step_up_required,
                 request_hash_mismatch, rate_limited,
                 service_unavailable, internal,
                 signature_missing, signature_invalid, timestamp_skew, nonce_reused,

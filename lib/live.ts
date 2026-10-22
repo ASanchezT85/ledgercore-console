@@ -9,7 +9,7 @@
  * { asset, amount: string } in minor units, Direction is DEBIT/CREDIT.
  */
 
-import { AuthError, apiBaseUrl, getAccessToken } from "./session";
+import { AuthError, apiBaseUrl, getAccessToken, requestStepUp } from "./session";
 
 // ---- API shapes (mirror of the OpenAPI contract) --------------------------
 
@@ -182,6 +182,23 @@ export class ApiError extends Error {
 export async function apiFetch<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  try {
+    return await apiFetchOnce<T>(path, init);
+  } catch (err) {
+    // A write at or above the ledger's step-up threshold (ADR-030): ask for a
+    // fresh code and retry once with the elevated token. Nothing was written,
+    // so the retry (same idempotency key) is safe.
+    if (err instanceof ApiError && err.code === "step_up_required" && (await requestStepUp())) {
+      return apiFetchOnce<T>(path, init);
+    }
+    throw err;
+  }
+}
+
+async function apiFetchOnce<T>(
+  path: string,
+  init: { method?: string; body?: unknown },
 ): Promise<T> {
   const token = await getAccessToken();
   const method = init.method ?? "GET";

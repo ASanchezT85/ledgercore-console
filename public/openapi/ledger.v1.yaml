@@ -398,6 +398,60 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/step-up-policy:
+    put:
+      operationId: setLedgerStepUpPolicy
+      tags: [Ledgers]
+      summary: Ask console users for a fresh second factor above an amount
+      description: |
+        Sets the ledger's `step_up_thresholds` ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)):
+        per asset, the gross amount in minor units (the sum of the
+        transaction's debits in that asset) at or above which a **console
+        user** must hold a step-up elevation to post. It applies to every
+        write that posts a transaction: a posted transaction, posting a
+        draft, a reversal, posting events and groups, ledger transfers (each
+        side against its own ledger) and executing an adjustment request.
+        Without the elevation the write answers `403 step_up_required` and
+        writes nothing. Signed requests with an API credential are never
+        asked: the signature, scopes and IP allow-list are their control.
+
+        `{}` turns step-up off, the default. At most 100 assets, each value
+        greater than zero. While a policy is on, changing or removing it also
+        needs the elevation, so a stolen session cannot switch it off first.
+        Each change leaves an `audit_log` row
+        (`ledger.step_up_policy.update`) with the previous and new
+        thresholds. Requires the `ledger:write` scope.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepUpPolicy'
+            examples:
+              tenThousandDollars:
+                value:
+                  thresholds:
+                    USD: 1000000
+              off:
+                value:
+                  thresholds: {}
+      responses:
+        '200':
+          description: The ledger with its setting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/ledgers/{id}/provider-exposure:
     get:
       operationId: getLedgerProviderExposure
@@ -1663,7 +1717,8 @@ paths:
         '403':
           description: |
             `frozen_override` was sent and the token lacks the
-            `ledger:frozen_override` scope.
+            `ledger:frozen_override` scope (`forbidden`), or a console user
+            must step up first (`step_up_required`, [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
           content:
             application/json:
               schema:
@@ -1864,6 +1919,7 @@ paths:
                     created_at: '2026-07-24T12:05:00Z'
                     posted_at: '2026-07-24T12:06:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
@@ -2086,7 +2142,8 @@ paths:
         '403':
           description: |
             `frozen_override` was sent and the token lacks the
-            `ledger:frozen_override` scope.
+            `ledger:frozen_override` scope (`forbidden`), or a console user
+            must step up first (`step_up_required`, [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
           content:
             application/json:
               schema:
@@ -2571,6 +2628,7 @@ paths:
                 $ref: '#/components/schemas/Transaction'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: The request is not approved (`conflict`).
@@ -3052,6 +3110,7 @@ paths:
                 $ref: '#/components/schemas/PostingGroup'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: |
@@ -3336,6 +3395,7 @@ paths:
                 $ref: '#/components/schemas/PostingEvent'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: The idempotency key was already used with another payload, or by a plain transaction (`idempotency_conflict`). A `hold_id` that is past its `expires_at` is `hold_expired`. A movement past the stage is `movement_stage_invalid`; one that has ended, `movement_closed`.
@@ -3498,6 +3558,7 @@ paths:
                 $ref: '#/components/schemas/LedgerTransfer'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: |
@@ -4366,6 +4427,19 @@ components:
         type: string
 
   responses:
+    StepUpRequired:
+      description: |
+        `step_up_required`: the caller is a console user without a fresh
+        second factor and this write posts, in some asset, at least the
+        ledger's step-up threshold (`PUT /v1/ledgers/{id}/step-up-policy`,
+        [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+        Nothing was written. Get an elevated token with identity's
+        `POST /v1/auth/2fa/step-up` and retry with it. Signed requests with
+        an API credential are never asked.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     BadRequest:
       description: |
         Invalid input (`validation_failed`) or malformed pagination cursor (`invalid_cursor`).
@@ -4525,7 +4599,7 @@ components:
                 unbalanced_transaction, insufficient_funds, account_inactive,
                 account_not_postable, parent_account_has_activity,
                 period_closed, fx_quote_expired, fx_rate_mismatch,
-                fx_quote_required, transfer_unbalanced, approval_required, self_approval,
+                fx_quote_required, transfer_unbalanced, approval_required, self_approval, step_up_required,
                 movement_stage_invalid, movement_closed, movement_required,
                 movement_transit_overdrawn,
                 request_hash_mismatch, hold_expired, metadata_not_scalar,
@@ -4683,9 +4757,35 @@ components:
             trailing zero units (`720h`, `1h30m`). `null` while the check is
             off, the default.
           examples: [720h]
+        step_up_thresholds:
+          $ref: '#/components/schemas/StepUpThresholds'
         created_at:
           type: string
           format: date-time
+
+    StepUpThresholds:
+      type: object
+      description: |
+        Asset code to minor units at or above which a console user must step
+        up to post (`PUT /v1/ledgers/{id}/step-up-policy`). `{}` while step-up
+        is off, the default.
+      maxProperties: 100
+      propertyNames:
+        pattern: '^[A-Z0-9]{1,12}$'
+      additionalProperties:
+        type: integer
+        format: int64
+        minimum: 1
+      examples:
+        - USD: 1000000
+
+    StepUpPolicy:
+      type: object
+      required: [thresholds]
+      additionalProperties: false
+      properties:
+        thresholds:
+          $ref: '#/components/schemas/StepUpThresholds'
 
     MovementPolicy:
       type: object
