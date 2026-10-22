@@ -3224,7 +3224,11 @@ paths:
         (balance per asset, periods, metadata allowlist, overdraft, account
         status, hash chain). The transaction carries `posting_rule_id`. An
         amount of `0` skips its lines. `lists` feed the rule's repeated lines
-        (ADR-027); computed amounts are derived, never supplied. Every amount and role the rule names
+        (ADR-027); computed amounts are derived, never supplied. A rule with
+        `fx` (ADR-028) books a posting group instead, one member per asset
+        under the keys `<idempotency_key>/1`, `/2`, …, citing `fx_quote_id`;
+        such an event cannot settle a hold and its key is at most 240
+        characters. Every amount and role the rule names
         must be supplied, and nothing else (400 `validation_failed`). The
         postings must balance (422 `unbalanced_transaction`). An unknown
         `event_type` or `rule_version` is 404. Requires `ledger:write`.
@@ -5930,8 +5934,13 @@ components:
           description: Computes the amount once per item of this list; only lines and amounts of the same list can use it.
         op:
           type: string
-          enum: [sum, sub, mul]
-          description: '`sum` adds every operand; `sub` is the first minus the rest (2+ operands); `mul` is the one operand × `factor`, rounded.'
+          enum: [sum, sub, mul, convert]
+          description: |
+            `sum` adds every operand; `sub` is the first minus the rest (2+
+            operands); `mul` is the one operand × `factor`, rounded; `convert`
+            (only in a rule with `fx`, ADR-028) prices the one operand, in
+            minor units of the event quote's `base_asset`, in minor units of
+            its `quote_asset`: × `rate` × 10^(exp(quote) − exp(base)), rounded.
         of:
           type: array
           minItems: 1
@@ -5952,9 +5961,28 @@ components:
           type: string
           enum: [down, up, half_up, half_even]
           description: |
-            `mul` only, required: how the product becomes whole minor units,
+            `mul` and `convert` only, required: how the product becomes whole minor units,
             on its magnitude. `down` toward zero, `up` away from zero,
             `half_up` ties away from zero, `half_even` ties to even.
+
+    RuleFX:
+      type: object
+      additionalProperties: false
+      description: |
+        Makes the rule a conversion (ADR-028): an event books a posting group
+        with one member per asset (in the order each asset first appears in
+        the lines), citing the event's `fx_quote_id` and this conversion
+        account, judged against the quote like any group (`fx_rate_mismatch`,
+        `fx_quote_expired`, 422). Exactly one of `account_id` and `account`.
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: Fixed conversion account.
+        account:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Conversion account role; the event supplies it in `accounts`.
 
     PostingRule:
       type: object
@@ -5982,6 +6010,8 @@ components:
           items:
             $ref: '#/components/schemas/RuleAmount'
           description: Computed amounts (ADR-027); omitted when the rule has none.
+        fx:
+          $ref: '#/components/schemas/RuleFX'
         lines:
           type: array
           minItems: 2
@@ -5990,7 +6020,7 @@ components:
             $ref: '#/components/schemas/RuleLine'
         rule_hash:
           type: string
-          description: Hex SHA-256 of the rule's event type, computed amounts (when any) and lines.
+          description: Hex SHA-256 of the rule's event type, computed amounts (when any), lines and fx (when set).
           examples: ['9c1e0b7a4d2f58163ab07c94e5d1f2a83b6c4d7e0f19a2b35c8d6e7f40a1b2c3']
         created_at:
           type: string
@@ -6015,6 +6045,8 @@ components:
           maxItems: 100
           items:
             $ref: '#/components/schemas/RuleAmount'
+        fx:
+          $ref: '#/components/schemas/RuleFX'
         lines:
           type: array
           minItems: 2
@@ -6088,6 +6120,13 @@ components:
             item may not reuse a name of the event's `amounts`, `accounts` or
             of a computed amount. The event produces at most 1000 postings.
             Part of the idempotency fingerprint.
+        fx_quote_id:
+          type: string
+          format: uuid
+          description: |
+            The quote a converting rule (one with `fx`, ADR-028) prices the
+            event with: required for such a rule, refused for any other. Part
+            of the idempotency fingerprint. An unknown quote is 404.
         hold_id:
           type: string
           format: uuid
@@ -6152,6 +6191,17 @@ components:
             items:
               $ref: '#/components/schemas/EventItem'
           description: The event's lists (ADR-027); omitted when it has none.
+        fx_quote_id:
+          type: string
+          format: uuid
+          description: The quote the event cited; omitted when none.
+        posting_group_id:
+          type: string
+          format: uuid
+          description: |
+            The posting group a converting rule booked (ADR-028); `transaction`
+            is then its first member, and `GET /v1/posting-groups/{id}` returns
+            every member. Omitted for an event booked as one transaction.
         movement:
           oneOf:
             - $ref: '#/components/schemas/MovementRef'
