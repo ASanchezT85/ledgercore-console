@@ -28,6 +28,7 @@ servers:
   - url: http://localhost:8080
     description: Local development (via gateway)
 security:
+  - signedRequest: []
   - bearerAuth: []
 tags:
   - name: Subscriptions
@@ -37,6 +38,10 @@ paths:
   /v1/webhook-subscriptions:
     post:
       operationId: createSubscription
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Subscriptions]
       summary: Create a subscription
       requestBody:
@@ -73,6 +78,9 @@ paths:
       tags: [Subscriptions]
       summary: List subscriptions
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
@@ -99,6 +107,9 @@ paths:
       tags: [Subscriptions]
       summary: Get a subscription
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -118,6 +129,9 @@ paths:
         subscription with `active: false` (it stops receiving events and can
         be re-activated later).
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -164,6 +178,9 @@ paths:
         whenever it wants inside the window without losing events. After the
         deadline the old secret is purged and never used again.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -199,6 +216,9 @@ paths:
       tags: [Deliveries]
       summary: List deliveries
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: subscription_id
           in: query
           schema:
@@ -252,6 +272,9 @@ paths:
       summary: Retry a failed or dead delivery
       description: Re-enqueues the delivery as `pending` for immediate retry.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -277,6 +300,43 @@ paths:
 
 components:
   securitySchemes:
+    signedRequest:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        **Preferred for integrations (ADR-023).** Sign every request with an API
+        credential (`api_key` + `api_secret`, created in the console or with
+        `POST /v1/tenants/{id}/api-credentials` on identity). Send four headers:
+
+        | Header | Value |
+        | --- | --- |
+        | `X-Api-Key` | the public `ak_<env>_...` key id |
+        | `X-Timestamp` | unix seconds; must be within 300 s of the server clock |
+        | `X-Nonce` | 16-64 chars of `[A-Za-z0-9_-]`, unique per request (kept 600 s) |
+        | `X-Signature` | `hex(HMAC-SHA256(api_secret, canonical))` |
+
+        ```
+        canonical = "LC1-HMAC-SHA256" \n METHOD \n host \n path \n query \n api_key
+                    \n timestamp \n nonce \n idempotency_key \n hex(sha256(body))
+        ```
+
+        `host` is the lower-cased `Host` header; `path` and `query` are
+        re-encoded (RFC 3986 unreserved characters only, query pairs sorted by
+        key then value); `idempotency_key` is the `Idempotency-Key` header or
+        empty; `body` is the exact bytes sent (sha256 of the empty string for no
+        body). The query is part of the signature. Test vectors:
+        `contracts/test-vectors/request-signatures.json`.
+
+        The secret never travels. Credentials are sealed to one environment (a
+        `sandbox` credential is refused by production: `environment_mismatch`),
+        carry closed scopes, expire, and are checked against the database on
+        every request (revocation is immediate). If identity cannot be reached,
+        the request is refused with 503, never accepted unverified. Errors:
+        `signature_missing`, `signature_invalid`, `timestamp_skew`,
+        `nonce_reused`, `credential_expired`, `credential_revoked`,
+        `environment_mismatch`. Never retry with the same `X-Nonce`.
+
     bearerAuth:
       type: http
       scheme: bearer
@@ -286,6 +346,30 @@ components:
         `env` (`sandbox` | `live`), `scopes` (string array).
 
   parameters:
+    SignatureApiKey:
+      name: X-Api-Key
+      in: header
+      required: false
+      description: Public key id of the API credential. Required (with the other three headers) when the request is signed; see the `signedRequest` scheme.
+      schema:
+        type: string
+        pattern: '^ak_(sandbox|live)_[0-9A-Za-z]{20}$'
+    SignatureTimestamp:
+      name: X-Timestamp
+      in: header
+      required: false
+      description: Unix seconds, within 300 s of the server clock. Signed requests only.
+      schema:
+        type: string
+        pattern: '^[0-9]+$'
+    SignatureNonce:
+      name: X-Nonce
+      in: header
+      required: false
+      description: One-use nonce, 16-64 chars of `[A-Za-z0-9_-]`. A repeated nonce is `nonce_reused`. Signed requests only.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{16,64}$'
     ResourceId:
       name: id
       in: path
@@ -354,7 +438,10 @@ components:
                 account_not_postable, parent_account_has_activity,
                 period_closed, approval_required, self_approval,
                 request_hash_mismatch, rate_limited,
-                service_unavailable, internal.
+                service_unavailable, internal,
+                signature_missing, signature_invalid, timestamp_skew, nonce_reused,
+                credential_expired, credential_revoked, environment_mismatch,
+                legacy_credential_retired.
             message:
               type: string
             request_id:

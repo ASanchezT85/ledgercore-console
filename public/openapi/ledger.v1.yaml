@@ -7,7 +7,8 @@ info:
     string-encoded to avoid int64 precision loss in JSON, together with an
     asset code. Every transaction must balance debits and credits per asset.
 
-    Multi-tenancy: the tenant is derived from the JWT; resources are always
+    Multi-tenancy: the tenant is derived from the authenticated credential (a
+    signed request, see `signedRequest`, or a console-user JWT); resources are always
     scoped to the authenticated tenant.
   contact:
     name: LedgerCore Platform Team
@@ -18,6 +19,7 @@ servers:
   - url: http://localhost:8080
     description: Local development (via gateway; paths are routed unchanged)
 security:
+  - signedRequest: []
   - bearerAuth: []
 tags:
   - name: Ledgers
@@ -62,6 +64,10 @@ paths:
   /v1/ledgers:
     post:
       operationId: createLedger
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Ledgers]
       summary: Create a ledger
       requestBody:
@@ -104,6 +110,9 @@ paths:
       tags: [Ledgers]
       summary: List ledgers
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
@@ -141,6 +150,9 @@ paths:
       tags: [Ledgers]
       summary: Get a ledger
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -184,6 +196,9 @@ paths:
         transaction. Setting the policy the ledger already has is a no-op and
         audits nothing.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -244,6 +259,9 @@ paths:
         (`ledger.fx_policy.update`) with the previous and the new value;
         setting the value the ledger already has is a no-op and audits nothing.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -307,6 +325,9 @@ paths:
         the report was first asked does change it: freeze a date with
         `POST /v1/ledgers/{id}/coverage-snapshots`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
         - name: as_of
           in: query
@@ -366,6 +387,9 @@ paths:
         the id and hash of each ledger's latest snapshot. Requires
         `ledger:write`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -392,6 +416,9 @@ paths:
       tags: [Ledgers, Reports]
       summary: List a ledger's coverage snapshots
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -420,6 +447,9 @@ paths:
       tags: [Ledgers, Reports]
       summary: Get a coverage snapshot
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -435,6 +465,10 @@ paths:
   /v1/accounts:
     post:
       operationId: createAccount
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Accounts]
       summary: Create an account
       requestBody:
@@ -509,6 +543,9 @@ paths:
       tags: [Accounts]
       summary: List accounts
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           schema:
@@ -560,6 +597,9 @@ paths:
       tags: [Accounts]
       summary: Get an account
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -619,6 +659,9 @@ paths:
         as it is and emits nothing, so retries are safe without an
         idempotency key.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -716,6 +759,9 @@ paths:
         the parent's `normal_balance`; `version` is the sum of the members'
         versions and `aggregate` is `true`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -757,6 +803,9 @@ paths:
       tags: [Accounts]
       summary: List the postings that hit an account
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
         - name: asset
           in: query
@@ -820,6 +869,9 @@ paths:
         audited `transaction.frozen_override` row. Balance, overdraft, periods
         and metadata rules still apply.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: Idempotency-Key
           in: header
           required: false
@@ -968,6 +1020,9 @@ paths:
       tags: [Transactions]
       summary: List transactions
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           schema:
@@ -1007,6 +1062,9 @@ paths:
       tags: [Transactions]
       summary: Get a transaction
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1052,6 +1110,9 @@ paths:
         already-posted transactions. A reversed or discarded transaction
         cannot be posted (409 `conflict`). Requires the `ledger:write` scope.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1116,6 +1177,9 @@ paths:
         (409 `conflict`); reverse a posted one instead. Requires the
         `ledger:write` scope.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1176,6 +1240,9 @@ paths:
         `POST /v1/transactions`. The audit row names the reversal and the
         original in `reverses`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: false
@@ -1257,6 +1324,10 @@ paths:
   /v1/periods:
     post:
       operationId: createPeriod
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Periods]
       summary: Create an accounting period
       description: |
@@ -1295,6 +1366,9 @@ paths:
       tags: [Periods]
       summary: List a ledger's accounting periods
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           required: true
@@ -1340,6 +1414,9 @@ paths:
           `period_closed`); correct it with an adjustment dated in an open
           period.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -1387,6 +1464,9 @@ paths:
         replays the request (200 + `X-Idempotent-Replay: true`); the same key
         with other content is 409 `idempotency_conflict`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: Idempotency-Key
           in: header
           required: false
@@ -1454,6 +1534,9 @@ paths:
       summary: List a ledger's adjustment requests
       description: Newest first. `status=pending` lists what checkers have to review. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           required: true
@@ -1492,6 +1575,9 @@ paths:
       summary: Get an adjustment request
       description: The request with its approvals. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1517,6 +1603,9 @@ paths:
         to `approved`. Only a `pending` request takes approvals. Audited.
         Requires `ledger:write`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: true
@@ -1567,6 +1656,9 @@ paths:
         any identity with `ledger:write` may do it; rejecting a rejected
         request is a no-op. Audited.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1590,6 +1682,9 @@ paths:
         hard-closed after the approvals). Cancelling a cancelled request is a
         no-op. Audited. Requires `ledger:write`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1619,6 +1714,9 @@ paths:
         period was hard-closed meanwhile) the request stays `approved`.
         Audited. Requires `ledger:write`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '201':
@@ -1653,6 +1751,10 @@ paths:
   /v1/holds:
     post:
       operationId: createHold
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Holds]
       summary: Create a hold
       description: |
@@ -1763,6 +1865,9 @@ paths:
       tags: [Holds]
       summary: Get a hold
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1788,6 +1893,9 @@ paths:
         A hold past `expires_at` is 409 `hold_expired`, whether or not the
         sweeper has already marked it `expired`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       requestBody:
         required: false
@@ -1860,6 +1968,9 @@ paths:
         Frees the reserved funds without moving money. A hold past
         `expires_at` is 409 `hold_expired` (its funds are freed by expiry).
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1905,6 +2016,10 @@ paths:
   /v1/fx-quotes:
     post:
       operationId: createFXQuote
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [FXQuotes]
       summary: Create an FX quote
       description: |
@@ -1956,6 +2071,9 @@ paths:
       summary: Get an FX quote
       description: Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -1994,6 +2112,9 @@ paths:
         the body or via the `Idempotency-Key` request header. Members get the
         derived keys `<key>/1`, `<key>/2`, ….
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: Idempotency-Key
           in: header
           required: false
@@ -2104,6 +2225,9 @@ paths:
       summary: Get a posting group
       description: The group with its member transactions. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -2118,6 +2242,10 @@ paths:
   /v1/posting-rules:
     post:
       operationId: createPostingRule
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [PostingRules]
       summary: Publish a posting rule
       description: |
@@ -2179,6 +2307,9 @@ paths:
         Every published version, newest first; `event_type` narrows the list
         to one event type. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           required: true
@@ -2220,6 +2351,9 @@ paths:
       summary: Get a posting rule
       description: Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -2257,6 +2391,9 @@ paths:
         The same key with another payload, or a key already held by a plain
         transaction, is 409 `idempotency_conflict`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: Idempotency-Key
           in: header
           required: false
@@ -2345,6 +2482,9 @@ paths:
       summary: Get a posting event
       description: The event with the transaction it booked. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -2398,6 +2538,9 @@ paths:
         either of its ledgers has it (`PUT /v1/ledgers/{id}/fx-policy`). The
         quote is part of the request for idempotency.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: Idempotency-Key
           in: header
           required: false
@@ -2506,6 +2649,9 @@ paths:
       summary: Get a transfer between ledgers
       description: The transfer with its two transactions. Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -2520,6 +2666,10 @@ paths:
   /v1/movements:
     post:
       operationId: openMovement
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Movements]
       summary: Open a movement
       description: |
@@ -2624,6 +2774,9 @@ paths:
         for too long: `status=open&opened_before=<now minus the age>`.
         Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           schema:
@@ -2687,6 +2840,9 @@ paths:
       summary: Get a movement
       description: Requires `ledger:read`.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - $ref: '#/components/parameters/ResourceId'
       responses:
         '200':
@@ -2714,6 +2870,9 @@ paths:
         in a later period contributes its original postings to its own period
         and the reversal's postings to the period of the reversal.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: ledger_id
           in: query
           required: true
@@ -2803,6 +2962,9 @@ paths:
         keyset-paginated; opening/closing always cover the whole period
         regardless of the page.
       parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
         - name: account_id
           in: query
           required: true
@@ -2881,6 +3043,10 @@ paths:
   /v1/provider-positions:
     get:
       operationId: listProviderPositions
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
       tags: [Reports]
       summary: Provider (counterparty) positions
       description: |
@@ -2945,6 +3111,43 @@ paths:
 
 components:
   securitySchemes:
+    signedRequest:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        **Preferred for integrations (ADR-023).** Sign every request with an API
+        credential (`api_key` + `api_secret`, created in the console or with
+        `POST /v1/tenants/{id}/api-credentials` on identity). Send four headers:
+
+        | Header | Value |
+        | --- | --- |
+        | `X-Api-Key` | the public `ak_<env>_...` key id |
+        | `X-Timestamp` | unix seconds; must be within 300 s of the server clock |
+        | `X-Nonce` | 16-64 chars of `[A-Za-z0-9_-]`, unique per request (kept 600 s) |
+        | `X-Signature` | `hex(HMAC-SHA256(api_secret, canonical))` |
+
+        ```
+        canonical = "LC1-HMAC-SHA256" \n METHOD \n host \n path \n query \n api_key
+                    \n timestamp \n nonce \n idempotency_key \n hex(sha256(body))
+        ```
+
+        `host` is the lower-cased `Host` header; `path` and `query` are
+        re-encoded (RFC 3986 unreserved characters only, query pairs sorted by
+        key then value); `idempotency_key` is the `Idempotency-Key` header or
+        empty; `body` is the exact bytes sent (sha256 of the empty string for no
+        body). The query is part of the signature. Test vectors:
+        `contracts/test-vectors/request-signatures.json`.
+
+        The secret never travels. Credentials are sealed to one environment (a
+        `sandbox` credential is refused by production: `environment_mismatch`),
+        carry closed scopes, expire, and are checked against the database on
+        every request (revocation is immediate). If identity cannot be reached,
+        the request is refused with 503, never accepted unverified. Errors:
+        `signature_missing`, `signature_invalid`, `timestamp_skew`,
+        `nonce_reused`, `credential_expired`, `credential_revoked`,
+        `environment_mismatch`. Never retry with the same `X-Nonce`.
+
     bearerAuth:
       type: http
       scheme: bearer
@@ -2952,6 +3155,30 @@ components:
       description: EdDSA JWT issued by the identity service (POST /v1/auth/token).
 
   parameters:
+    SignatureApiKey:
+      name: X-Api-Key
+      in: header
+      required: false
+      description: Public key id of the API credential. Required (with the other three headers) when the request is signed; see the `signedRequest` scheme.
+      schema:
+        type: string
+        pattern: '^ak_(sandbox|live)_[0-9A-Za-z]{20}$'
+    SignatureTimestamp:
+      name: X-Timestamp
+      in: header
+      required: false
+      description: Unix seconds, within 300 s of the server clock. Signed requests only.
+      schema:
+        type: string
+        pattern: '^[0-9]+$'
+    SignatureNonce:
+      name: X-Nonce
+      in: header
+      required: false
+      description: One-use nonce, 16-64 chars of `[A-Za-z0-9_-]`. A repeated nonce is `nonce_reused`. Signed requests only.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{16,64}$'
     ResourceId:
       name: id
       in: path
@@ -3135,7 +3362,10 @@ components:
                 metadata_too_large,
                 metadata_pii_detected, metadata_key_not_allowed,
                 rate_limited,
-                service_unavailable, internal.
+                service_unavailable, internal,
+                signature_missing, signature_invalid, timestamp_skew, nonce_reused,
+                credential_expired, credential_revoked, environment_mismatch,
+                legacy_credential_retired.
             message:
               type: string
               description: Human-readable explanation. Never parse this.
