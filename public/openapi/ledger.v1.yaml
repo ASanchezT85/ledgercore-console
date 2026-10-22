@@ -3094,7 +3094,15 @@ paths:
         event fills), a `direction`, the name of one of the event's `amount`s
         and, optionally, an `asset` (default: the event's). Rules are
         immutable and versioned: publishing never edits an earlier version,
-        and each version carries a `rule_hash` over its event type and lines.
+        and each version carries a `rule_hash` over its event type, computed
+        amounts and lines.
+
+        Since ADR-027 a rule may also declare `computed` amounts (`sum`,
+        `sub`, or `mul` by a decimal `factor` with a declared `rounding`), lines
+        that repeat over a list of the event (`each`), and `signed` lines whose
+        negative amount books the other side, optionally on a
+        `negative_account_id` / `negative_account`. A rule without them
+        evaluates and hashes exactly as before.
         Not idempotent: every call publishes a new version. Requires
         `ledger:write`.
       requestBody:
@@ -3215,7 +3223,8 @@ paths:
         posts the resulting transaction through the normal posting path
         (balance per asset, periods, metadata allowlist, overdraft, account
         status, hash chain). The transaction carries `posting_rule_id`. An
-        amount of `0` skips its lines. Every amount and role the rule names
+        amount of `0` skips its lines. `lists` feed the rule's repeated lines
+        (ADR-027); computed amounts are derived, never supplied. Every amount and role the rule names
         must be supplied, and nothing else (400 `validation_failed`). The
         postings must balance (422 `unbalanced_transaction`). An unknown
         `event_type` or `rule_version` is 404. Requires `ledger:write`.
@@ -5879,6 +5888,73 @@ components:
           description: Name of one of the event's `amounts`.
         asset:
           $ref: '#/components/schemas/AssetCode'
+        each:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: |
+            Repeats the line once per item of the event's list of this name
+            (ADR-027), in the list's order. The line's `account` role and
+            `amount` are looked up in the item first, then in the event.
+        signed:
+          type: boolean
+          description: |
+            The amount may be negative (a gain or a loss): a negative amount
+            books the opposite direction, for its absolute value, on
+            `negative_account_id` / `negative_account` when one is set, else on
+            the line's own account. Without it a negative amount is refused.
+        negative_account_id:
+          type: string
+          format: uuid
+          description: Fixed account a negative amount posts to. Only on a `signed` line; at most one of the two negative accounts.
+        negative_account:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Account role a negative amount posts to. Only on a `signed` line.
+
+    RuleAmount:
+      type: object
+      required: [name, op, of]
+      additionalProperties: false
+      description: |
+        An amount the rule computes (ADR-027), in the order the rule declares
+        them, before the lines are built. Integer arithmetic in minor units;
+        a result outside int64 refuses the event.
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Name the lines and later computed amounts use. The event may not supply it.
+        each:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,31}$'
+          description: Computes the amount once per item of this list; only lines and amounts of the same list can use it.
+        op:
+          type: string
+          enum: [sum, sub, mul]
+          description: '`sum` adds every operand; `sub` is the first minus the rest (2+ operands); `mul` is the one operand × `factor`, rounded.'
+        of:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            pattern: '^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31})?$'
+          description: |
+            Operands: amount names (the event's, the item's, or an earlier
+            computed amount of the same scope). At event level, `list.amount`
+            is the sum of that amount over the list's items.
+        factor:
+          type: string
+          pattern: '^[0-9]{1,20}(\.[0-9]{1,18})?$'
+          description: '`mul` only: a positive decimal, e.g. `0.12` for 12 %.'
+          examples: ['0.12']
+        rounding:
+          type: string
+          enum: [down, up, half_up, half_even]
+          description: |
+            `mul` only, required: how the product becomes whole minor units,
+            on its magnitude. `down` toward zero, `up` away from zero,
+            `half_up` ties away from zero, `half_even` ties to even.
 
     PostingRule:
       type: object
@@ -5901,6 +5977,11 @@ components:
         description:
           type: string
           description: Omitted when empty.
+        computed:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuleAmount'
+          description: Computed amounts (ADR-027); omitted when the rule has none.
         lines:
           type: array
           minItems: 2
@@ -5909,7 +5990,7 @@ components:
             $ref: '#/components/schemas/RuleLine'
         rule_hash:
           type: string
-          description: Hex SHA-256 of the rule's event type and lines.
+          description: Hex SHA-256 of the rule's event type, computed amounts (when any) and lines.
           examples: ['9c1e0b7a4d2f58163ab07c94e5d1f2a83b6c4d7e0f19a2b35c8d6e7f40a1b2c3']
         created_at:
           type: string
@@ -5929,6 +6010,11 @@ components:
         description:
           type: string
           maxLength: 1024
+        computed:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RuleAmount'
         lines:
           type: array
           minItems: 2
@@ -5939,7 +6025,7 @@ components:
 
     CreatePostingEventRequest:
       type: object
-      required: [ledger_id, event_type, amounts]
+      required: [ledger_id, event_type]
       additionalProperties: false
       properties:
         ledger_id:
@@ -5978,14 +6064,30 @@ components:
           type: object
           additionalProperties:
             type: string
-            pattern: '^[0-9]+$'
-          description: Amount name to string-encoded integer in minor units. Must hold exactly the names the rule uses; 0 skips that amount's lines.
+            pattern: '^-?[0-9]+$'
+          description: |
+            Amount name to string-encoded integer in minor units. Must hold
+            exactly the names the rule uses (none of its computed ones); 0
+            skips that amount's lines. A negative amount is refused unless it
+            only feeds computed amounts or `signed` lines.
         accounts:
           type: object
           additionalProperties:
             type: string
             format: uuid
           description: Account role to account id. Must hold exactly the roles the rule uses.
+        lists:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventItem'
+          description: |
+            Lists for the rule's repeated lines (ADR-027): exactly the lists
+            the rule names, each possibly empty, at most 1000 items in all. An
+            item may not reuse a name of the event's `amounts`, `accounts` or
+            of a computed amount. The event produces at most 1000 postings.
+            Part of the idempotency fingerprint.
         hold_id:
           type: string
           format: uuid
@@ -6043,6 +6145,13 @@ components:
             type: string
             format: uuid
           description: Account role to account id; empty when the rule uses only fixed accounts.
+        lists:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventItem'
+          description: The event's lists (ADR-027); omitted when it has none.
         movement:
           oneOf:
             - $ref: '#/components/schemas/MovementRef'
@@ -6053,6 +6162,24 @@ components:
         created_at:
           type: string
           format: date-time
+
+    EventItem:
+      type: object
+      additionalProperties: false
+      description: One item of an event's list, with the amounts and roles its repeated lines use.
+      properties:
+        amounts:
+          type: object
+          additionalProperties:
+            type: string
+            pattern: '^-?[0-9]+$'
+          description: Amount name to string-encoded integer in minor units.
+        accounts:
+          type: object
+          additionalProperties:
+            type: string
+            format: uuid
+          description: Account role to account id.
 
     TransferSideRequest:
       type: object
