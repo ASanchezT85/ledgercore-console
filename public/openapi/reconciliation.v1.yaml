@@ -892,6 +892,58 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/reconciliation/close-checklist:
+    get:
+      operationId: getCloseChecklist
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - name: as_of
+          in: query
+          required: true
+          description: The end of the period being closed (RFC 3339, exclusive).
+          schema:
+            type: string
+            format: date-time
+      tags: [Reports]
+      summary: Reconciliation's half of the period close checklist
+      description: |
+        Per source with anything open (6.19, ADR-029): statement rows still
+        `unmatched` dated before `as_of`, and settlement batches still `open`
+        declared before it, each with the age of the oldest. Reconciliation
+        knows no ledgers, so this covers every source of the tenant; the
+        ledger's half is `GET /v1/periods/{id}/close-checklist` in
+        ledger-core. Informational: nothing here blocks a close.
+      responses:
+        '200':
+          description: The checklist.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [as_of, generated_at, clear, data]
+                properties:
+                  as_of: { type: string, format: date-time }
+                  generated_at: { type: string, format: date-time }
+                  clear:
+                    type: boolean
+                    description: True when no source has anything open.
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [source_id, source_name, unmatched_rows, open_settlement_batches]
+                      properties:
+                        source_id: { type: string, format: uuid }
+                        source_name: { type: string }
+                        unmatched_rows:
+                          $ref: '#/components/schemas/CloseItems'
+                        open_settlement_batches:
+                          $ref: '#/components/schemas/CloseItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /v1/reconciliation/reports:
     get:
       operationId: getReports
@@ -1199,6 +1251,18 @@ components:
         type: string
 
   schemas:
+    CloseItems:
+      type: object
+      required: [count, oldest_at, oldest_age_seconds]
+      properties:
+        count: { type: integer }
+        oldest_at:
+          type: [string, 'null']
+          format: date-time
+        oldest_age_seconds:
+          type: [integer, 'null']
+          description: Age of the oldest item at `generated_at`, in whole seconds.
+
     Error:
       type: object
       required: [error]

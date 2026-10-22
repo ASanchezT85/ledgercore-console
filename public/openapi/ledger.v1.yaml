@@ -2202,6 +2202,16 @@ paths:
         - `hard_closed`: no transaction may be dated in it (422
           `period_closed`); correct it with an adjustment dated in an open
           period.
+
+        **Close checklist (6.19).** A response that leaves the period closed
+        carries `checklist`, read under the period lock: movements in transit
+        or in flight, transit residuals, active holds, pending adjustment
+        requests dated in the period, suspense balances and coverage gaps,
+        each with the age of the oldest. It is informational, except that a
+        hard close with adjustment requests `pending` or `approved` dated in
+        the period is refused (409 `period_pending_adjustments`): they could
+        never execute afterwards. Execute, reject or cancel them, or send
+        `force: true` with a `reason`; the override is in the audit row.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -2217,9 +2227,14 @@ paths:
               hardClose:
                 value:
                   status: hard_closed
+              forcedHardClose:
+                value:
+                  status: hard_closed
+                  force: true
+                  reason: the late deposit will be booked as an adjustment dated in November
       responses:
         '200':
-          description: The period.
+          description: The period, with its checklist when it is closed.
           content:
             application/json:
               schema:
@@ -2228,11 +2243,39 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: The transition would move the period back (`conflict`).
+          description: |
+            The transition would move the period back (`conflict`), or a hard
+            close would strand pending adjustment requests
+            (`period_pending_adjustments`).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /v1/periods/{id}/close-checklist:
+    get:
+      operationId: getPeriodCloseChecklist
+      tags: [Periods]
+      summary: What is still open for a period
+      description: |
+        The close checklist of the period, read now (see `PeriodChecklist`).
+        It is what `PATCH /v1/periods/{id}` returns when it closes the
+        period; ask for it before closing. Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The checklist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodChecklist'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /v1/adjustment-requests:
     post:
@@ -5012,6 +5055,14 @@ components:
           $ref: '#/components/schemas/FundClass'
         liquidity:
           $ref: '#/components/schemas/Liquidity'
+        suspense:
+          type: boolean
+          default: false
+          description: |
+            Marks a suspense account: one that parks money not yet identified
+            (an unidentified deposit). It changes no rule; the period close
+            checklist reports its balance and how old that balance is (6.19).
+            Changeable with `PATCH`, audited as `account.update`.
         transit:
           type: boolean
           default: false
@@ -5093,10 +5144,13 @@ components:
           $ref: '#/components/schemas/FundClass'
         liquidity:
           $ref: '#/components/schemas/Liquidity'
+        suspense:
+          type: boolean
+          description: See `AccountCreate.suspense`.
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, liquidity, transit, postable, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, liquidity, transit, suspense, postable, created_at]
       properties:
         id:
           type: string
@@ -5130,6 +5184,9 @@ components:
         transit:
           type: boolean
           description: Whether this is a transit account; see `AccountCreate.transit`.
+        suspense:
+          type: boolean
+          description: Whether this is a suspense account; see `AccountCreate.suspense`.
         postable:
           type: boolean
           readOnly: true
@@ -5466,6 +5523,21 @@ components:
       properties:
         status:
           $ref: '#/components/schemas/PeriodStatus'
+        force:
+          type: boolean
+          default: false
+          description: |
+            Hard close even though adjustment requests dated in the period
+            are still `pending` or `approved` (they can never execute after
+            it). Requires `reason`.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: |
+            Why the close is forced. Only with `force: true`; recorded in the
+            `period.transition` audit row with `forced: true` and the number
+            of requests stranded.
 
     Period:
       type: object
@@ -5493,6 +5565,115 @@ components:
         updated_at:
           type: string
           format: date-time
+        checklist:
+          $ref: '#/components/schemas/PeriodChecklist'
+
+    CloseItems:
+      type: object
+      required: [count, oldest_at, oldest_age_seconds, ids]
+      description: One line of the close checklist.
+      properties:
+        count:
+          type: integer
+          format: int64
+        oldest_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the oldest item started; null when there is none.
+        oldest_age_seconds:
+          type: [integer, 'null']
+          format: int64
+          description: Age of the oldest item at `generated_at`, in whole seconds.
+        ids:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            format: uuid
+          description: The oldest items, oldest first, at most 20.
+
+    SuspenseBalance:
+      type: object
+      required: [account_id, path, asset, balance, oldest_at, oldest_age_seconds]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        path:
+          type: string
+        asset:
+          type: string
+        balance:
+          type: string
+          description: Posted balance at the period end on the account's normal side, minor units.
+        oldest_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            Effective date of the oldest entry the balance still contains,
+            taking what left the account from the oldest entries first (FIFO).
+            Null when the balance is on the wrong side.
+        oldest_age_seconds:
+          type: [integer, 'null']
+          format: int64
+
+    PeriodChecklist:
+      type: object
+      description: |
+        What is still open when a period closes (6.19, ADR-029). Every line
+        counts objects that started before `as_of` (the period end) and are
+        still open now. Only `pending_adjustments` blocks anything: a hard
+        close (`blocks_hard_close`). Statement rows and settlement batches
+        live in reconciliation: `GET /v1/reconciliation/close-checklist`.
+      required: [period_id, as_of, generated_at, clear, blocks_hard_close, open_movements,
+                 open_movements_by_status, transit_residuals, active_holds, pending_adjustments, suspense, uncovered]
+      properties:
+        period_id:
+          type: string
+          format: uuid
+        as_of:
+          type: string
+          format: date-time
+          description: The period end (exclusive).
+        generated_at:
+          type: string
+          format: date-time
+        clear:
+          type: boolean
+          description: True when every line is empty.
+        blocks_hard_close:
+          type: boolean
+          description: True when a hard close would be refused with 409 `period_pending_adjustments`.
+        open_movements:
+          allOf: [{ $ref: '#/components/schemas/CloseItems' }]
+          description: Movements not yet terminal (in transit or in flight), aged from `opened_at`.
+        open_movements_by_status:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+          description: The open movements per status (`open`, `authorized`, `captured`, `dispatched`).
+        transit_residuals:
+          allOf: [{ $ref: '#/components/schemas/CloseItems' }]
+          description: Closed movements still holding transit (ADR-019 §4), aged from `closed_at`.
+        active_holds:
+          allOf: [{ $ref: '#/components/schemas/CloseItems' }]
+          description: Holds still active, aged from their creation.
+        pending_adjustments:
+          allOf: [{ $ref: '#/components/schemas/CloseItems' }]
+          description: Adjustment requests `pending` or `approved` dated in the period, aged from their creation.
+        suspense:
+          type: array
+          description: "Suspense accounts (`suspense: true`) with a balance at the period end."
+          items:
+            $ref: '#/components/schemas/SuspenseBalance'
+        uncovered:
+          type: array
+          description: |
+            Assets whose customer funds were not covered at the period end
+            (now, while the period has not ended), as `/coverage` reports them.
+          items:
+            $ref: '#/components/schemas/CoverageRow'
 
     AdjustmentStatus:
       type: string

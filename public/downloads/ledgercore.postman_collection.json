@@ -1576,7 +1576,38 @@
                     }
                   ]
                 },
-                "description": "Moves the period forward: `open` -> `soft_closed` -> `hard_closed`\n(`soft_closed` may be skipped). Setting the current status again is a\nno-op. Going back, including reopening a hard close, is 409\n`conflict`. Each real transition writes a `period.transition` row to\nthe audit log in the same database transaction. Requires\n`ledger:write`.\n\n- `soft_closed`: only adjustments of this period\n  (`adjusts_period_id`) may be dated in it.\n- `hard_closed`: no transaction may be dated in it (422\n  `period_closed`); correct it with an adjustment dated in an open\n  period."
+                "description": "Moves the period forward: `open` -> `soft_closed` -> `hard_closed`\n(`soft_closed` may be skipped). Setting the current status again is a\nno-op. Going back, including reopening a hard close, is 409\n`conflict`. Each real transition writes a `period.transition` row to\nthe audit log in the same database transaction. Requires\n`ledger:write`.\n\n- `soft_closed`: only adjustments of this period\n  (`adjusts_period_id`) may be dated in it.\n- `hard_closed`: no transaction may be dated in it (422\n  `period_closed`); correct it with an adjustment dated in an open\n  period.\n\n**Close checklist (6.19).** A response that leaves the period closed\ncarries `checklist`, read under the period lock: movements in transit\nor in flight, transit residuals, active holds, pending adjustment\nrequests dated in the period, suspense balances and coverage gaps,\neach with the age of the oldest. It is informational, except that a\nhard close with adjustment requests `pending` or `approved` dated in\nthe period is refused (409 `period_pending_adjustments`): they could\nnever execute afterwards. Execute, reject or cancel them, or send\n`force: true` with a `reason`; the override is in the audit row."
+              }
+            },
+            {
+              "name": "What is still open for a period",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/periods/:id/close-checklist",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "periods",
+                    ":id",
+                    "close-checklist"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The close checklist of the period, read now (see `PeriodChecklist`).\nIt is what `PATCH /v1/periods/{id}` returns when it closes the\nperiod; ask for it before closing. Requires `ledger:read`."
               }
             }
           ]
@@ -3477,6 +3508,38 @@
         {
           "name": "Reports",
           "item": [
+            {
+              "name": "Reconciliation's half of the period close checklist",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/close-checklist",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "close-checklist"
+                  ],
+                  "query": [
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": "The end of the period being closed (RFC 3339, exclusive)."
+                    }
+                  ]
+                },
+                "description": "Per source with anything open (6.19, ADR-029): statement rows still\n`unmatched` dated before `as_of`, and settlement batches still `open`\ndeclared before it, each with the age of the oldest. Reconciliation\nknows no ledgers, so this covers every source of the tenant; the\nledger's half is `GET /v1/periods/{id}/close-checklist` in\nledger-core. Informational: nothing here blocks a close."
+              }
+            },
             {
               "name": "Reconciliation report per source",
               "request": {
