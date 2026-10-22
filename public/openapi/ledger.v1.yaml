@@ -1933,6 +1933,28 @@ paths:
         transit below zero (422 `movement_transit_overdrawn`). A failure
         before the movement ends is reversed with stage `fail` on the same
         movement.
+
+        `amount` reverses only part of a single-asset transaction (a partial
+        chargeback). Each side's postings are scaled pro rata to it (largest
+        remainder), so a fee leg gives back its share; the reversal keeps
+        `reverses`. It needs an `idempotency_key` (the default key names only
+        the original). The original stays `posted` until the reversals in
+        force cover all of it; the one that does sets `reversed_by` and
+        `status: reversed`. Asking for more than is left is a 409; a reversal
+        itself is only reversed in full (400 `validation_failed`).
+        `ledger.transaction.reversed` carries `partial`, `asset` and `amount`
+        for a partial reversal.
+
+        `account_overrides` moves a leg of the reversal onto another account
+        of the same ledger (original account id -> replacement id), e.g. a
+        chargeback charged to another account of the same holder. The ledger
+        has no holder object (ADR-020), so "same holder" is the caller's
+        claim; the replacement is checked like any posting (status, freeze,
+        overdraft). Both fields are part of the idempotency fingerprint.
+
+        Reversing a reversal (a dispute won) gives the money back but leaves
+        the original `status: reversed`; `GET /v1/transactions/{id}` returns
+        the effective state in `reversal`.
       parameters:
         - $ref: '#/components/parameters/SignatureApiKey'
         - $ref: '#/components/parameters/SignatureTimestamp'
@@ -1958,7 +1980,22 @@ paths:
                   $ref: '#/components/schemas/Metadata'
                 movement:
                   $ref: '#/components/schemas/MovementRef'
+                amount:
+                  $ref: '#/components/schemas/Money'
+                account_overrides:
+                  type: object
+                  description: Original account id -> the account the reversal leg goes to instead.
+                  propertyNames:
+                    format: uuid
+                  additionalProperties:
+                    type: string
+                    format: uuid
             examples:
+              partialChargeback:
+                value:
+                  idempotency_key: rev-dep-2026-0002-partial
+                  reason: partial chargeback
+                  amount: { asset: USD, amount: '4000' }
               chargeback:
                 value:
                   idempotency_key: rev-dep-2026-0001
@@ -2010,8 +2047,9 @@ paths:
         '422': { $ref: '#/components/responses/MovementRejected' }
         '409':
           description: |
-            The transaction is not posted, or is already reversed
-            (`conflict`); or the movement the reversal names is past that
+            The transaction is not posted, is already reversed, or `amount` is
+            more than is left to reverse (`conflict`); or the movement the
+            reversal names is past that
             stage (`movement_stage_invalid`) or has ended (`movement_closed`).
           content:
             application/json:
@@ -5205,6 +5243,22 @@ components:
             - $ref: '#/components/schemas/MovementRef'
             - type: 'null'
           description: The staged movement and stage this transaction was written under (ADR-019); null when it names none.
+        reversal:
+          type: object
+          description: |
+            Effective reversal state, returned only by
+            `GET /v1/transactions/{id}` for a posted or reversed transaction
+            (6.12). A reversal that was itself reversed (a dispute won) no
+            longer counts, so a `status: reversed` original can be
+            effectively `posted` again.
+          required: [effective_status]
+          properties:
+            effective_status:
+              type: string
+              enum: [posted, partially_reversed, reversed]
+            reversed_amount:
+              $ref: '#/components/schemas/Money'
+              description: How much is reversed and in force; only for a single-asset transaction.
         effective_at:
           type: string
           format: date-time
