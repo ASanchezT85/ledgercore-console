@@ -1057,3 +1057,126 @@ export interface ApiAuditVerification {
 export function verifyAuditLog(): Promise<ApiAuditVerification> {
   return apiFetch("/v1/audit-log/verify");
 }
+
+// ---- Posting rules, events and groups ------------------------------------------
+
+export interface ApiPostingRule {
+  id: string;
+  ledger_id: string;
+  event_type: string;
+  version: number;
+  description?: string;
+  lines: Array<Record<string, unknown>>;
+  computed?: Array<Record<string, unknown>>;
+  fx?: Record<string, unknown>;
+  rule_hash: string;
+  created_at: string;
+}
+
+export function listPostingRules(ledgerId: string): Promise<Page<ApiPostingRule>> {
+  return apiFetch(`/v1/posting-rules${queryString({ ledger_id: ledgerId, limit: 100 })}`);
+}
+
+/** Rules, events and groups carry nested contracts; the console sends them as the API defines them. */
+export function createPostingRule(body: Record<string, unknown>): Promise<ApiPostingRule> {
+  return apiFetch("/v1/posting-rules", { method: "POST", body });
+}
+
+export function createPostingEvent(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return apiFetch("/v1/posting-events", { method: "POST", body });
+}
+
+export function getPostingEvent(id: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/v1/posting-events/${encodeURIComponent(id)}`);
+}
+
+export function createPostingGroup(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return apiFetch("/v1/posting-groups", { method: "POST", body });
+}
+
+export function getPostingGroup(id: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/v1/posting-groups/${encodeURIComponent(id)}`);
+}
+
+// ---- Webhooks --------------------------------------------------------------------
+
+export const WEBHOOK_EVENT_TYPES = [
+  "*",
+  "ledger.transaction.posted",
+  "ledger.transaction.reversed",
+  "ledger.transaction.discarded",
+  "ledger.hold.created",
+  "ledger.hold.captured",
+  "ledger.hold.released",
+  "ledger.hold.expired",
+  "ledger.account.updated",
+  "recon.discrepancy.detected",
+] as const;
+
+export interface ApiSubscription {
+  id: string;
+  url: string;
+  event_types: string[];
+  active: boolean;
+  created_at: string;
+  /** Only on create: shown exactly once. */
+  secret?: string;
+}
+
+export type DeliveryStatus = "pending" | "delivered" | "failed" | "dead";
+
+export interface ApiDelivery {
+  id: string;
+  subscription_id: string;
+  event_id: string;
+  event_type: string;
+  status: DeliveryStatus;
+  attempts: number;
+  next_attempt_at: string;
+  last_status_code: number | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+}
+
+export function listSubscriptions(): Promise<Page<ApiSubscription>> {
+  return apiFetch("/v1/webhook-subscriptions?limit=100");
+}
+
+export function createSubscription(body: {
+  url: string;
+  event_types: string[];
+}): Promise<ApiSubscription> {
+  return apiFetch("/v1/webhook-subscriptions", { method: "POST", body });
+}
+
+export function updateSubscription(
+  id: string,
+  body: { url?: string; event_types?: string[]; active?: boolean },
+): Promise<ApiSubscription> {
+  return apiFetch(`/v1/webhook-subscriptions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body,
+  });
+}
+
+export function rotateSubscriptionSecret(
+  id: string,
+): Promise<{ id: string; secret: string; previous_secret_expires_at: string }> {
+  return apiFetch(`/v1/webhook-subscriptions/${encodeURIComponent(id)}/rotate-secret`, {
+    method: "POST",
+  });
+}
+
+export function listDeliveries(
+  filters: { subscription_id?: string; status?: DeliveryStatus },
+  cursor?: string,
+): Promise<Page<ApiDelivery>> {
+  return apiFetch(`/v1/webhook-deliveries${queryString({ ...filters, limit: 50, cursor })}`);
+}
+
+export function retryDelivery(id: string): Promise<ApiDelivery> {
+  return apiFetch(`/v1/webhook-deliveries/${encodeURIComponent(id)}/retry`, {
+    method: "POST",
+  });
+}

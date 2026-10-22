@@ -16,6 +16,8 @@ import {
   Repeat,
   CalendarRange,
   Stamp,
+  Webhook,
+  Workflow,
   LockKeyhole,
   LogOut,
   Route,
@@ -42,6 +44,8 @@ const NAV_ITEMS = [
   { href: "/adjustments", label: "Adjustments", icon: Stamp },
   { href: "/transfers", label: "FX & transfers", icon: Repeat },
   { href: "/audit", label: "Audit log", icon: FileClock },
+  { href: "/rules", label: "Posting rules", icon: Workflow },
+  { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/reconciliation", label: "Reconciliation", icon: Scale },
   { href: "/developers", label: "Developers", icon: Code2 },
   { href: "/users", label: "Users", icon: Users },
@@ -102,7 +106,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-0.5 px-3" aria-label="Main">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Main">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
