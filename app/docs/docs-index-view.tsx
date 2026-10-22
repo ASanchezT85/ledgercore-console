@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Rocket,
   Webhook,
+  GitBranch,
+  FlaskConical,
+  Download,
 } from "lucide-react";
 import { AuthorCredit } from "@/components/author-credit";
 import { LanguageProvider, LangToggle, useLang } from "@/components/language";
@@ -39,6 +42,9 @@ interface IndexCopy {
   guidesTitle: string;
   guidesSubtitle: string;
   guides: CardCopy[];
+  downloadsTitle: string;
+  downloadsSubtitle: string;
+  downloads: CardCopy[];
   footer: string;
 }
 
@@ -89,6 +95,31 @@ const ES: IndexCopy = {
     {
       title: "Errores",
       body: "El catálogo estable completo: código → HTTP → cuándo ocurre → qué hacer.",
+    },
+    {
+      title: "Estados",
+      body: "El ciclo de vida de transacciones, cuentas, holds, movimientos, periodos, ajustes y entregas.",
+    },
+    {
+      title: "Sandbox",
+      body: "Cómo obtenerlo, qué comparte con producción, sus límites y cómo se pasa a producción.",
+    },
+  ],
+  downloadsTitle: "Descargas",
+  downloadsSubtitle:
+    "Prueba la API desde Postman con la colección firmada y el ambiente de sandbox, y verifica tu propia implementación de la firma con los vectores compartidos.",
+  downloads: [
+    {
+      title: "Colección de Postman",
+      body: "Todas las operaciones firmadas, con el script que firma cada petición (LC1-HMAC-SHA256).",
+    },
+    {
+      title: "Ambiente de sandbox",
+      body: "Variables baseUrl, apiKey y apiSecret; pon aquí la credencial que creaste en la consola.",
+    },
+    {
+      title: "Vectores de firma",
+      body: "Los vectores normativos que pasan el servidor y los SDKs de TypeScript y PHP.",
     },
   ],
   footer: "infraestructura financiera",
@@ -142,6 +173,31 @@ const EN: IndexCopy = {
       title: "Errors",
       body: "The complete stable catalog: code → HTTP → when it happens → what to do.",
     },
+    {
+      title: "Statuses",
+      body: "The lifecycle of transactions, accounts, holds, movements, periods, adjustments and deliveries.",
+    },
+    {
+      title: "Sandbox",
+      body: "How to get one, what it shares with production, its limits and how to go live.",
+    },
+  ],
+  downloadsTitle: "Downloads",
+  downloadsSubtitle:
+    "Try the API from Postman with the signed collection and the sandbox environment, and check your own signing implementation against the shared vectors.",
+  downloads: [
+    {
+      title: "Postman collection",
+      body: "Every signed operation, with the script that signs each request (LC1-HMAC-SHA256).",
+    },
+    {
+      title: "Sandbox environment",
+      body: "baseUrl, apiKey and apiSecret variables; put the credential you created in the console here.",
+    },
+    {
+      title: "Signing vectors",
+      body: "The normative vectors the server and the TypeScript and PHP SDKs pass.",
+    },
   ],
   footer: "financial infrastructure",
 };
@@ -155,9 +211,17 @@ const GUIDE_SLUGS = [
   "paginacion",
   "webhooks",
   "errores",
+  "estados",
+  "sandbox",
 ] as const;
 
-const GUIDE_ICONS = [KeyRound, Coins, RefreshCw, Layers, Webhook, AlertTriangle] as const;
+const DOWNLOAD_FILES = [
+  "ledgercore.postman_collection.json",
+  "ledgercore.postman_environment.json",
+  "request-signatures.json",
+] as const;
+
+const GUIDE_ICONS = [KeyRound, Coins, RefreshCw, Layers, Webhook, AlertTriangle, GitBranch, FlaskConical] as const;
 
 function TopCard({
   href,
@@ -243,6 +307,30 @@ function DocsIndexContent() {
                 </Link>
               );
             })}
+          </div>
+        </section>
+
+        <section className="mt-16">
+          <div className="mb-6 flex items-center gap-2">
+            <Download size={18} className="text-accent" aria-hidden="true" />
+            <h2 className="text-xl font-semibold tracking-tight text-ink">{c.downloadsTitle}</h2>
+          </div>
+          <p className="mb-6 max-w-2xl text-sm leading-relaxed text-ink-muted">
+            {c.downloadsSubtitle}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {c.downloads.map((d, i) => (
+              <a
+                key={DOWNLOAD_FILES[i]}
+                href={`/downloads/${DOWNLOAD_FILES[i]}`}
+                download
+                className="group rounded-(--radius-card) border border-edge bg-surface/70 p-5 transition-colors hover:border-accent/50"
+              >
+                <h3 className="text-sm font-semibold text-ink group-hover:text-accent">{d.title}</h3>
+                <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">{d.body}</p>
+                <p className="mt-2 font-mono text-[11px] text-ink-faint">{DOWNLOAD_FILES[i]}</p>
+              </a>
+            ))}
           </div>
         </section>
       </main>

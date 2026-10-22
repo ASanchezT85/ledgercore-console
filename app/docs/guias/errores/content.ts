@@ -50,7 +50,7 @@ const CATALOG_ES: string[][] = [
   ["forbidden", "403", "Autenticado pero sin permiso para la operación (reservado; hoy los scopes se validan de forma binaria en el gateway).", "Revisa los scopes de tu llave."],
   ["not_found", "404", "El recurso no existe dentro de tu tenant.", "Verifica el id y que pertenezca al tenant/entorno correcto (sandbox vs live)."],
   ["conflict", "409", "Conflicto de unicidad (slug/nombre duplicado) o de estado del ciclo de vida (postear una transacción revertida o descartada, descartar una transacción posteada, reintentar una entrega no reintentable, cambiar una cuenta cerrada, cerrar una cuenta con saldo, holds o drafts pendientes).", "Lee el recurso actual y decide; no es un error transitorio."],
-  ["idempotency_conflict", "409", "Reservado: misma idempotency key con payload distinto. Hoy la reutilización devuelve la respuesta original con X-Idempotent-Replay: true.", "Nunca reutilices una key con contenido distinto."],
+  ["idempotency_conflict", "409", "La misma idempotency key llegó con un payload distinto al de la primera vez (transacciones, movimientos, transferencias, eventos…).", "Nunca reutilices una key con contenido distinto: usa una key nueva para una operación nueva."],
   ["unbalanced_transaction", "422", "Los apuntes no cuadran por activo (débitos ≠ créditos) o hay overflow monetario.", "Corrige los montos hasta que débitos = créditos por asset."],
   ["insufficient_funds", "422", "El saldo disponible no cubre la operación: un hold, o un asiento que dejaría en negativo una cuenta con allow_negative: false (wallets/pasivos por defecto).", "Reduce el monto o libera holds; reintenta cuando haya saldo."],
   ["account_inactive", "422", "La transacción o el hold toca una cuenta frozen o closed.", "No es transitorio: reactiva la cuenta o usa otra."],
@@ -75,7 +75,6 @@ const CATALOG_ES: string[][] = [
   ["metadata_pii_detected", "422", "Una clave o un valor parece un email, una tarjeta, un teléfono o un IBAN. El mensaje nunca repite el valor.", "No guardes datos personales en metadata; usa ids opacos con prefijo (cus_42, ord_…)."],
   ["metadata_key_not_allowed", "422", "La clave no está en la lista blanca de metadata del libro.", "Usa una clave permitida o pide ampliar la lista (PUT /v1/ledgers/{id}/metadata-policy)."],
   ["rate_limited", "429", "Se superó un límite de uso (p. ej. cupo diario de signups sandbox).", "Espera y reintenta con backoff; con la misma idempotency key el retry es seguro."],
-  ["not_available_yet", "501", "El libro eligió loss_allocation by_provider, pero su matriz proveedor × titular necesita los movimientos con trazabilidad (ADR-019, paso 2), que aún no existen.", "No es transitorio todavía: la regla ya se puede guardar; la matriz pro_rata_pool sí responde."],
   ["internal", "500", "Error inesperado; el detalle sólo está en los logs del servicio.", "Reintenta con backoff; si persiste, reporta el request_id a soporte."],
   ["service_unavailable", "503", "Dependencia caída (base de datos) o funcionalidad no configurada (admin token ausente).", "Reintenta con backoff."],
 ];
@@ -87,7 +86,7 @@ const CATALOG_EN: string[][] = [
   ["forbidden", "403", "Authenticated but not allowed (reserved; today scopes are validated binarily at the gateway).", "Review your key's scopes."],
   ["not_found", "404", "The resource does not exist within your tenant.", "Check the id and that it belongs to the right tenant/environment (sandbox vs live)."],
   ["conflict", "409", "Uniqueness conflict (duplicate slug/name) or lifecycle conflict (posting a reversed or discarded transaction, discarding a posted transaction, retrying a non-retryable delivery, changing a closed account, closing an account with a balance, holds or pending drafts).", "Read the current resource and decide; it is not transient."],
-  ["idempotency_conflict", "409", "Reserved: same idempotency key with a different payload. Today reuse returns the original response with X-Idempotent-Replay: true.", "Never reuse a key with different content."],
+  ["idempotency_conflict", "409", "The same idempotency key arrived with a different payload than the first time (transactions, movements, transfers, events…).", "Never reuse a key with different content: use a new key for a new operation."],
   ["unbalanced_transaction", "422", "Postings don't balance per asset (debits ≠ credits) or a monetary overflow occurred.", "Fix the amounts until debits = credits per asset."],
   ["insufficient_funds", "422", "Available balance does not cover the operation: a hold, or a posting that would leave an account with allow_negative: false below zero (wallets/liabilities by default).", "Lower the amount or release holds; retry once funded."],
   ["account_inactive", "422", "The transaction or hold touches a frozen or closed account.", "Not transient: reactivate the account or use another one."],
@@ -112,7 +111,6 @@ const CATALOG_EN: string[][] = [
   ["metadata_pii_detected", "422", "A key or value looks like an email, card number, phone number or IBAN. The message never echoes the value.", "Don't store personal data in metadata; use opaque prefixed ids (cus_42, ord_…)."],
   ["metadata_key_not_allowed", "422", "The key is not in the ledger's metadata allowlist.", "Use an allowed key or have the list extended (PUT /v1/ledgers/{id}/metadata-policy)."],
   ["rate_limited", "429", "A usage limit was exceeded (e.g. daily sandbox signup quota).", "Wait and retry with backoff; with the same idempotency key the retry is safe."],
-  ["not_available_yet", "501", "The ledger chose loss_allocation by_provider, but its provider × holder matrix needs the traced movements (ADR-019, step 2), which do not exist yet.", "Not transient yet: the rule can already be saved; the pro_rata_pool matrix does answer."],
   ["internal", "500", "Unexpected error; details live only in the service logs.", "Retry with backoff; if it persists, report the request_id to support."],
   ["service_unavailable", "503", "Dependency down (database) or feature not configured (missing admin token).", "Retry with backoff."],
 ];

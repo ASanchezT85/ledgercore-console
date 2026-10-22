@@ -9,7 +9,8 @@
 //      into public/openapi/ when the monorepo is present. The copies in
 //      public/openapi/ are committed so the Docker build (whose context only
 //      copies apps/console/) still works without the contracts directory.
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +25,27 @@ const vendorDir = join(root, "public/vendor");
 mkdirSync(vendorDir, { recursive: true });
 copyFileSync(scalarSrc, join(vendorDir, "scalar.standalone.js"));
 console.log("[docs-assets] copied scalar.standalone.js -> public/vendor/");
+
+// The portal loads this file with a Subresource Integrity hash pinned in
+// app/docs/api/scalar-sri.ts: the build stops if the package changed under it.
+const sri =
+  "sha384-" + createHash("sha384").update(readFileSync(scalarSrc)).digest("base64");
+if (process.argv.includes("--print-sri")) {
+  console.log(sri);
+  process.exit(0);
+}
+const pinned = /SCALAR_SRI = "([^"]+)"/.exec(
+  readFileSync(join(root, "app/docs/api/scalar-sri.ts"), "utf8"),
+)?.[1];
+if (pinned !== sri) {
+  console.error(
+    `[docs-assets] Scalar bundle hash ${sri} does not match the pinned ${pinned}.
+` +
+      "  Upgrading on purpose? Run `node scripts/prepare-docs-assets.mjs --print-sri` and update app/docs/api/scalar-sri.ts.",
+  );
+  process.exit(1);
+}
+console.log("[docs-assets] Scalar bundle matches its pinned SRI hash");
 
 // 2. OpenAPI contracts (monorepo source of truth -> committed copies)
 const contractsDir = join(root, "../../contracts/openapi");

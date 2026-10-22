@@ -7,9 +7,9 @@
   "license": "FSL-1.1-ALv2",
   "scripts": {
     "dev": "next dev -p 3000",
-    "prebuild": "node scripts/prepare-docs-assets.mjs",
+    "prebuild": "node scripts/prepare-docs-assets.mjs && node scripts/build-downloads.mjs",
     "build": "next build",
-    "predev": "node scripts/prepare-docs-assets.mjs",
+    "predev": "node scripts/prepare-docs-assets.mjs && node scripts/build-downloads.mjs",
     "start": "next start -p 3000",
     "lint": "tsc --noEmit"
   },
@@ -24,13 +24,14 @@
     "uqr": "0.1.3"
   },
   "devDependencies": {
-    "@scalar/api-reference": "^1.67.0",
+    "@scalar/api-reference": "1.75.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^26.4.0",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "tailwindcss": "^4.1.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "yaml": "2.9.1"
   }
 }

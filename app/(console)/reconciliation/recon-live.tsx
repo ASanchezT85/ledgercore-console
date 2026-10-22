@@ -132,7 +132,12 @@ function DiscrepancyRow({ d, onSaved }: { d: ReconDiscrepancy; onSaved: (m: stri
       <TR onClick={() => setOpen(!open)} selected={open}>
         <TD className="font-mono text-xs text-ink">{d.kind}</TD>
         <TD><Badge tone={SEV_TONE[d.severity]}>{d.severity}</Badge></TD>
-        <TD>{d.status}</TD>
+        <TD>
+          {d.status}
+          {d.details.auto_resolved === true && (
+            <Badge tone="emerald" className="ml-2">auto-resolved</Badge>
+          )}
+        </TD>
         <TD className="font-mono text-xs">{d.owner ?? "—"}</TD>
         <TD className={`text-xs whitespace-nowrap ${d.sla_breached ? "text-danger" : ""}`}>{formatDateTime(d.due_at)}</TD>
       </TR>

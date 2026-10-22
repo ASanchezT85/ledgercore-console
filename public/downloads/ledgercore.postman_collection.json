@@ -1,0 +1,3892 @@
+{
+  "info": {
+    "name": "LedgerCore API",
+    "description": "Every signed operation of the Ledger Core, Reconciliation and Webhooks APIs. Set apiKey and apiSecret in the environment (a credential from the console); each request is signed with the LC1-HMAC-SHA256 scheme of ADR-023 by the collection's pre-request script. Guides: /docs/guias/autenticacion.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.variables.set(\"idempotencyKey\", CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex));",
+          "// Copyright 2025-2026 Alexander J. Sánchez T.",
+          "// SPDX-License-Identifier: FSL-1.1-ALv2",
+          "",
+          "// Request signing of ADR-023 (scheme LC1-HMAC-SHA256) as a Postman",
+          "// pre-request script. It is plain ES5 so it runs in Postman's sandbox",
+          "// (which provides CryptoJS) and in node, where scripts/build-downloads.mjs",
+          "// replays contracts/test-vectors/request-signatures.json against it: the",
+          "// same vectors the Go, TypeScript and PHP implementations pass.",
+          "//",
+          "// Everything above the \"Postman wiring\" marker is the signer; the code below",
+          "// it only reads the request and sets the four headers.",
+          "",
+          "var LC_VERSION = \"LC1-HMAC-SHA256\";",
+          "",
+          "function lcUtf8(str) {",
+          "  var out = [];",
+          "  for (var i = 0; i < str.length; i++) {",
+          "    var c = str.charCodeAt(i);",
+          "    if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {",
+          "      var d = str.charCodeAt(i + 1);",
+          "      if (d >= 0xdc00 && d <= 0xdfff) {",
+          "        c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00);",
+          "        i++;",
+          "      }",
+          "    }",
+          "    if (c < 0x80) out.push(c);",
+          "    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));",
+          "    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));",
+          "    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));",
+          "  }",
+          "  return out;",
+          "}",
+          "",
+          "function lcIsHex(c) {",
+          "  return (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x46) || (c >= 0x61 && c <= 0x66);",
+          "}",
+          "",
+          "// Percent-decodes to bytes; plusIsSpace is the form-style rule for queries.",
+          "function lcDecode(s, plusIsSpace) {",
+          "  var src = lcUtf8(s);",
+          "  var out = [];",
+          "  for (var i = 0; i < src.length; i++) {",
+          "    var c = src[i];",
+          "    if (c === 0x25) {",
+          "      var h = src[i + 1];",
+          "      var l = src[i + 2];",
+          "      if (h === undefined || l === undefined || !lcIsHex(h) || !lcIsHex(l)) {",
+          "        throw new Error(\"malformed percent-encoding in path or query\");",
+          "      }",
+          "      out.push(parseInt(String.fromCharCode(h, l), 16));",
+          "      i += 2;",
+          "    } else {",
+          "      out.push(plusIsSpace && c === 0x2b ? 0x20 : c);",
+          "    }",
+          "  }",
+          "  return out;",
+          "}",
+          "",
+          "// Percent-encodes every byte except the RFC 3986 unreserved characters.",
+          "function lcEncode(bytes) {",
+          "  var hex = \"0123456789ABCDEF\";",
+          "  var out = \"\";",
+          "  for (var i = 0; i < bytes.length; i++) {",
+          "    var c = bytes[i];",
+          "    if ((c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a) || (c >= 0x30 && c <= 0x39) ||",
+          "        c === 0x2d || c === 0x2e || c === 0x5f || c === 0x7e) {",
+          "      out += String.fromCharCode(c);",
+          "    } else {",
+          "      out += \"%\" + hex.charAt(c >> 4) + hex.charAt(c & 15);",
+          "    }",
+          "  }",
+          "  return out;",
+          "}",
+          "",
+          "function lcCompare(a, b) {",
+          "  var n = Math.min(a.length, b.length);",
+          "  for (var i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] - b[i];",
+          "  return a.length - b.length;",
+          "}",
+          "",
+          "function lcPath(path) {",
+          "  if (path === \"\") return \"/\";",
+          "  return path",
+          "    .split(\"/\")",
+          "    .map(function (seg) { return lcEncode(lcDecode(seg, false)); })",
+          "    .join(\"/\");",
+          "}",
+          "",
+          "function lcQuery(raw) {",
+          "  var pairs = [];",
+          "  raw.split(\"&\").forEach(function (part) {",
+          "    if (part === \"\") return;",
+          "    var eq = part.indexOf(\"=\");",
+          "    var k = eq < 0 ? part : part.slice(0, eq);",
+          "    var v = eq < 0 ? \"\" : part.slice(eq + 1);",
+          "    pairs.push([lcDecode(k, true), lcDecode(v, true)]);",
+          "  });",
+          "  pairs.sort(function (a, b) { return lcCompare(a[0], b[0]) || lcCompare(a[1], b[1]); });",
+          "  return pairs.map(function (p) { return lcEncode(p[0]) + \"=\" + lcEncode(p[1]); }).join(\"&\");",
+          "}",
+          "",
+          "// input: method, host, path, rawQuery, idempotencyKey, apiKey, secret, timestamp, nonce, body (exact text sent)",
+          "// Returns { bodySha256, canonical, signature }.",
+          "function lcSign(input, CryptoJS) {",
+          "  var bodySha256 = CryptoJS.SHA256(input.body).toString(CryptoJS.enc.Hex);",
+          "  var canonical = [",
+          "    LC_VERSION,",
+          "    input.method.toUpperCase(),",
+          "    input.host.toLowerCase(),",
+          "    lcPath(input.path),",
+          "    lcQuery(input.rawQuery),",
+          "    input.apiKey,",
+          "    input.timestamp,",
+          "    input.nonce,",
+          "    input.idempotencyKey,",
+          "    bodySha256,",
+          "  ].join(\"\\n\");",
+          "  var signature = CryptoJS.HmacSHA256(canonical, input.secret).toString(CryptoJS.enc.Hex);",
+          "  return { bodySha256: bodySha256, canonical: canonical, signature: signature };",
+          "}",
+          "",
+          "// ---- Postman wiring --------------------------------------------------------",
+          "if (typeof pm !== \"undefined\") {",
+          "  (function () {",
+          "    var apiKey = pm.variables.get(\"apiKey\");",
+          "    var secret = pm.variables.get(\"apiSecret\");",
+          "    if (!apiKey || !secret) {",
+          "      throw new Error(\"Set apiKey and apiSecret in the LedgerCore environment (a credential from the console).\");",
+          "    }",
+          "    // The URL as it will be sent: variables resolved, then split by hand",
+          "    // (Postman's sandbox has no WHATWG URL). The host keeps its port.",
+          "    var resolved = pm.variables.replaceIn(pm.request.url.toString());",
+          "    var m = /^[a-z]+:\\/\\/([^\\/?#]+)([^?#]*)(?:\\?([^#]*))?/i.exec(resolved);",
+          "    if (!m) throw new Error(\"Cannot read the request URL: \" + resolved);",
+          "    var host = m[1];",
+          "    var body = pm.request.body && pm.request.body.raw ? pm.variables.replaceIn(pm.request.body.raw) : \"\";",
+          "    var idem = pm.variables.replaceIn(pm.request.headers.get(\"Idempotency-Key\") || \"\");",
+          "    var timestamp = String(Math.floor(Date.now() / 1000));",
+          "    var nonce = CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex);",
+          "    var signed = lcSign({",
+          "      method: pm.request.method,",
+          "      host: host,",
+          "      path: m[2],",
+          "      rawQuery: m[3] || \"\",",
+          "      idempotencyKey: idem,",
+          "      apiKey: apiKey,",
+          "      secret: secret,",
+          "      timestamp: timestamp,",
+          "      nonce: nonce,",
+          "      body: body,",
+          "    }, CryptoJS);",
+          "    pm.request.headers.upsert({ key: \"X-Api-Key\", value: apiKey });",
+          "    pm.request.headers.upsert({ key: \"X-Timestamp\", value: timestamp });",
+          "    pm.request.headers.upsert({ key: \"X-Nonce\", value: nonce });",
+          "    pm.request.headers.upsert({ key: \"X-Signature\", value: signed.signature });",
+          "  })();",
+          "}",
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "item": [
+    {
+      "name": "Ledger Core",
+      "item": [
+        {
+          "name": "Ledgers",
+          "item": [
+            {
+              "name": "List ledgers",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "List ledgers"
+              }
+            },
+            {
+              "name": "Create a ledger",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"main\",\n  \"description\": \"Primary operating ledger\",\n  \"metadata\": {\n    \"region\": \"us\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers"
+                  ]
+                },
+                "description": "Create a ledger"
+              }
+            },
+            {
+              "name": "Get a ledger",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a ledger"
+              }
+            },
+            {
+              "name": "Set the ledger's metadata allowlist",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"transaction_keys\": [\n    \"order_id\",\n    \"channel\"\n  ],\n  \"account_keys\": [\n    \"customer_id\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/metadata-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "metadata-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Replaces the metadata keys the ledger accepts: `transaction_keys` on\nnew transactions, holds and movements, `account_keys` on new accounts. A list\nthat is `null` or left out removes that allowlist (any key accepted);\nan empty list accepts no key. A key outside the list is rejected with\n422 `metadata_key_not_allowed`. Requires the `ledger:write` scope.\n\nEvery ledger, with or without an allowlist, accepts only scalar\nvalues and rejects obvious personal data (see `Metadata`). The policy\ngoverns metadata written from then on; what is already stored is not\nre-judged. The change waits for the writes in flight on the ledger,\nand writes that commit after it are judged by it.\n\nEach change leaves an `audit_log` row (`ledger.metadata_policy.update`)\nwith the previous and the new policy, in the same database\ntransaction. Setting the policy the ledger already has is a no-op and\naudits nothing."
+              }
+            },
+            {
+              "name": "Require an FX quote for conversions",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"require_fx_quote\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/fx-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "fx-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Turns the ledger's `require_fx_quote` on or off (off by default for\nevery ledger). While it is on, a transaction that holds more than one\nasset is refused with 422 `fx_quote_required`, drafts included: a\nplain transaction carries no quote, so convert with a posting group\n(`POST /v1/posting-groups` with `fx`) or a transfer between ledgers\nthat cites `fx`. A transfer between ledgers that moves more than one\nasset without `fx` is refused the same way when either of its two\nledgers has the policy on. Reversals, and replays of what was\naccepted earlier, are never refused by it. Requires the `ledger:write`\nscope.\n\nThe policy governs movements written from then on. The change waits\nfor the writes in flight on the ledger, and writes that commit after\nit are judged by it. Each change leaves an `audit_log` row\n(`ledger.fx_policy.update`) with the previous and the new value;\nsetting the value the ledger already has is a no-op and audits nothing."
+              }
+            },
+            {
+              "name": "Choose how a provider's loss is shared",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"loss_allocation\": \"pro_rata_pool\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/custody-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "custody-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Sets the ledger's `loss_allocation` ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)\n§6), the rule that says whose money is lost when a provider fails:\n\n- `pro_rata_pool`: the loss is shared over every holder's balance, pro\n  rata (safeguarded funds are one pool).\n- `by_provider`: the loss falls on the holders whose money sat at that\n  provider.\n\n**There is no default.** A ledger that never set it returns\n`loss_allocation: null`, has only the provider level\n(`GET /v1/ledgers/{id}/provider-exposure`) and refuses the owner matrix\nwith 409 `loss_allocation_not_configured`: a silent default would pick\none side of a legal question for the tenant. Which rule applies to a\nlicence and country must be confirmed with counsel; this is not legal\nadvice. The field is required and cannot be unset.\n\nThe change waits for the writes in flight on the ledger. Each change\nleaves an `audit_log` row (`ledger.custody_policy.update`) with the\nprevious value (`null` the first time) and the new one; setting the\nrule the ledger already has is a no-op and audits nothing. Requires\nthe `ledger:write` scope."
+              }
+            },
+            {
+              "name": "Flag movements that stay open too long",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"stale_movement_after\": \"720h\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/movement-policy",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "movement-policy"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Sets the ledger's `stale_movement_after` ([ADR-019](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-019-staged-movements.md)\n§8): how long a movement may stay open (not terminal) before it is\nstale. A duration in Go syntax (`\"720h\"` for 30 days, `\"90m\"`), whole\nseconds, from `1m` to `87600h`; `null` turns the check off, which is\nthe default. The field is required.\n\nA sweeper in ledger-core (every `LEDGERCORE_STALE_SWEEP_INTERVAL`,\ndefault 5 minutes) finds the open movements whose `opened_at` is\nolder than the setting, sets their `stale_at` and emits\n`ledger.movement.stale` **once per movement**; reconciliation turns it\ninto a `movement_stale` exception that the movement's close resolves.\nLowering the setting reports the movements that now cross it on the\nnext sweep; a movement already reported is never reported again.\n`GET /v1/movements?status=open&opened_before=…` lists the open ones of\nany age.\n\nEach change leaves an `audit_log` row (`ledger.movement_policy.update`)\nwith the previous and new value in seconds (`null` when off); setting\nthe value the ledger already has is a no-op. Requires the\n`ledger:write` scope."
+              }
+            },
+            {
+              "name": "What each provider holds, and whether customer funds are backed",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/provider-exposure",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "provider-exposure"
+                  ],
+                  "query": [
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": "RFC 3339 instant; omit for the report as of now."
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The provider level of [ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)\n§2, per provider and asset. It needs no `loss_allocation`, so it always\nworks. An account belongs to a provider when `metadata.provider` names\nit or its path has a `provider` segment followed by the name\n(`assets:provider:bank_x:custody`), as in `GET /v1/provider-positions`.\n\n- `custody`: posted balance (debits - credits) of the provider's\n  `asset` accounts with `fund_class: customer` and `liquidity: liquid`:\n  the customer money physically there. Summed over providers it is\n  `customer_assets` of `GET /v1/ledgers/{id}/coverage`.\n- `claims`: the same with `liquidity: claim`. Reported apart; it never\n  counts as backing.\n- `own`: posted balance of the provider's `own` asset accounts: the\n  platform's own money there (receivables included).\n- `payable`: posted balance (credits - debits) of the provider's\n  `liability` accounts: what the platform owes the provider.\n\n`breaks` lists where customer funds are not backed, and `backed` is\n`breaks` being empty:\n\n- `ledger_shortfall` (per asset): customer assets do not reach customer\n  liabilities, the `shortfall` of `/coverage`.\n- `negative_custody` (per provider and asset): the provider's customer\n  custody is below zero; a provider cannot hold negative money.\n\nPer-provider backing has no owner meaning in a pool, so under\n`pro_rata_pool` these are the whole check. Under `by_provider` it adds:\n\n- `provider_shortfall` (per provider and asset): the holders' traced\n  portions at the provider (the `by_provider` rows of\n  `exposure-matrix`, transit included) are more than its customer\n  assets (`custody` + `claims`). A fee the provider kept out of\n  customer money (a settlement that delivered less than it took) shows\n  here, at the provider that received less.\n\nAn account that names a provider is the provider's, never a holder's.\n\n**As of a date.** Like `/coverage`: with `as_of` the sums are rebuilt\nfrom the postings with `effective_at <= as_of`, using the `fund_class`\nand `liquidity` each account had then. `loss_allocation` is today's."
+              }
+            },
+            {
+              "name": "Provider × holder matrix under the ledger's loss rule",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/exposure-matrix",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "exposure-matrix"
+                  ],
+                  "query": [
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": "RFC 3339 instant; omit for the matrix as of now."
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Whose money sits at which provider ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)\n§2), computed on read under the ledger's `loss_allocation`, never\nstored. It replaces N × M calls to read one wallet per provider.\n\n- `pro_rata_pool`: holder h's exposure to provider P = `balance(h)` ×\n  `custody(P)` / Σ customer custody, per asset. Only providers with\n  positive customer custody weigh (a negative one is a `break` of\n  `provider-exposure`; `claims` never weigh). The shares of a holder add\n  up to its balance exactly (the cents go to the largest remainders).\n- `by_provider`: a fold over the ledger's postings in commit order\n  that keeps a portion per (holder, provider). Money in through P is\n  P's; a debit of a holder takes from its portion at the provider the\n  money leaves through first, then pro rata; P2P and stages into and\n  out of a movement's transit carry the portions along; a treasury\n  write with no holder leg (a settlement, a rebalance) moves every\n  holder's portion at P to Q pro rata in one step. Which provider a\n  stage belongs to comes from its movement (ADR-019), so a\n  `complete` that only debits transit is still P's. Money no provider\n  received yet (the bought currency of a conversion) is `unplaced`\n  until treasury books it into a custody. The transit of movements in\n  flight is in the `holder: \"\"` row.\n- Not configured: 409 `loss_allocation_not_configured`. There is no\n  default (`PUT /v1/ledgers/{id}/custody-policy`).\n\nA holder is the `holder` of `metadata`, or the path segment after\n`holder` (`liabilities:holder:ana:available`); its `balance` adds its\n`liability` accounts with `fund_class: customer` and a positive\nbalance, `available`, `incoming` and the rest, in one asset. One in the\nred never lowers it, as in `/coverage`. `holder: \"\"` gathers customer\nliabilities that name no holder, so the rows add up to the\nliabilities of `/coverage` (less accounts that name a provider).\n`unplaced` is the part of a balance that no provider custody backs: all\nof it when the asset has no positive customer custody.\n\nThe matrix is not paginated; every holder with a balance is returned.\n`as_of` works as in `GET /v1/ledgers/{id}/coverage`."
+              }
+            },
+            {
+              "name": "Customer-funds coverage per asset",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/coverage",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "coverage"
+                  ],
+                  "query": [
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": "RFC 3339 instant; omit for the report as of now."
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Whether the funds that back customer money cover what is owed to\ncustomers, per asset of the ledger:\n\n- `customer_assets`: posted balance (debits - credits) of the\n  ledger's `asset` accounts with `fund_class: customer` and\n  `liquidity: liquid` — the bank or safeguarding accounts that hold\n  customer money and can pay it out now.\n- `customer_claims`: posted balance of the `asset` accounts with\n  `fund_class: customer` and `liquidity: claim` — money that may take\n  years to collect (a receivable from a failed provider, say). Reported\n  apart; it never counts as backing.\n- `customer_liabilities`: posted balance (credits - debits) of its\n  `liability` accounts with `fund_class: customer` — wallets and\n  other balances owed to customers. Only accounts with a positive\n  balance add to it: a wallet in the red (`allow_negative`) never\n  lowers what is owed to the others.\n- `customer_receivables`: the sum of the negative balances of those\n  same accounts, as a positive number — what customers owe the\n  platform. `negative_accounts` counts them. They are reported apart\n  and never reduce `customer_liabilities` nor count as backing.\n- `covered` is `customer_assets >= customer_liabilities`;\n  `shortfall` is what is missing, `\"0\"` when covered.\n\nOnly posted balances count (drafts and holds do not). Accounts of\nother types, and `own` accounts, never count. New `liability` accounts default to\n`customer` and every other type to `own`, so until the backing asset\naccounts are marked `customer` the report shows the full liability\nas shortfall. The top-level `covered` is true when every asset is.\n\n**As of a date.** Without `as_of` the report is read from the running\n`account_balances`. With `as_of` it is rebuilt from the postings\nwhose transaction has `effective_at <= as_of` (posted or later\nreversed, like `trial-balance?as_of=`) **using the `fund_class` and `liquidity` each\naccount had at `as_of`**: reclassifying an account afterwards does\nnot change the report for an earlier date. The class history comes\nfrom the audit log (`account.update`), so a change made straight in\nthe database is not seen. A posting backdated into the period after\nthe report was first asked does change it: freeze a date with\n`POST /v1/ledgers/{id}/coverage-snapshots`."
+              }
+            },
+            {
+              "name": "List a ledger's coverage snapshots",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/coverage-snapshots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "coverage-snapshots"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "List a ledger's coverage snapshots"
+              }
+            },
+            {
+              "name": "Freeze the coverage report at a date",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"as_of\": \"2026-09-30T23:59:59Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/coverage-snapshots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "coverage-snapshots"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Stores the ledger's coverage report as of `as_of` (see\n`GET /v1/ledgers/{id}/coverage?as_of=`) as an immutable snapshot with\na `snapshot_hash`: the SHA-256, in hex, of its canonical JSON\n(`ledgercore.coverage.v2`: format, ledger, `as_of` in UTC and the\nper-asset sums, `customer_claims` included, rows sorted by asset). Snapshots are append-only (the\ndatabase rejects UPDATE and DELETE), so the report a regulator\nreceived for a month-end stays exactly that. Taking the same `as_of`\nagain adds another snapshot, with the same hash unless history\nchanged meanwhile. `as_of` is required and may not be in the future\n(400 `validation_failed`). The daily `anchor-heads` also publishes\nthe id and hash of each ledger's latest snapshot. Requires\n`ledger:write`."
+              }
+            },
+            {
+              "name": "Get a coverage snapshot",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/coverage-snapshots/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "coverage-snapshots",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a coverage snapshot"
+              }
+            },
+            {
+              "name": "Freeze every account of a provider",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"all\",\n  \"reason\": \"PSP Z insolvency proceedings\",\n  \"case_ref\": \"CASE-12\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/providers/:provider/freeze",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "providers",
+                    ":provider",
+                    "freeze"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    },
+                    {
+                      "key": "provider",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Freezes the custody, receivable and payable accounts of provider `P` in\none database transaction, with the locks, modes, audit and events of\n`POST /v1/accounts/{id}/freeze`: nothing captures, dispatches or settles\nthrough `P` once the call returns, and no movement commits between the\nfirst account and the last. Requires the `ledger:write` scope.\n\nAn account belongs to `P` when `metadata.provider` is `P` or its path\nhas the segment `provider` followed by `P` (the rule of\n`GET /v1/provider-positions`; names compare in lower case). Only `asset`\nand `liability` accounts are frozen: expense accounts of `P` (fees, loss\nwrite-downs) stay open for bookkeeping. Parents of those accounts are\nfrozen too, as in the account freeze.\n\n**Holders' wallets stay active.** Their money is a claim on the\noperator, not on `P`; they keep spending, paying and receiving. Which\nholders carry the loss is a separate decision, set by the ledger's\nloss-allocation rule: under `pro_rata_pool` nothing else moves when a\nprovider is frozen and a loss is shared pro rata when it is recognized.\nWith no rule set, nothing else moves either.\n\n**Under `by_provider`** the same transaction also moves each named\nholder's traced portion at `P` (its `P` share in\n`GET /v1/ledgers/{id}/exposure-matrix`) out of its wallet into\n`liabilities:holder:<h>:provider_claim:<P>`, a customer liability\ncreated when missing and frozen (`all`, same `reason` and `case_ref`):\nwhat the holder had at `P` can no longer be spent, and the rest of the\nwallet stays active. The wallet legs come from the holder's postable\ncustomer liabilities, `…:available` first, each up to what it has free\nof holds (held money stays). It is one posted transaction with\nreference `provider_claim:<P>`, booked with `frozen_override` and the\nfreeze `reason` (a holder frozen on its own is moved too, and audited\nas `transaction.frozen_override`). The call takes the ledger lock\nexclusively, so it waits for the writes in flight and no write commits\nbetween the fold and the move. Freezing again moves only what is still\ntraced to `P` in a wallet (nothing, after the first time); unfreezing\nleaves the claims frozen. A claim path that would turn an account with\nactivity into a parent is 422 `parent_has_activity` and nothing is\nfrozen.\n\n`mode` (`all` by default, `debits`, `credits`), `reason` (required, 1 to\n1024 characters) and `case_ref` (optional, up to 128) are the same as on\nthe account freeze. A provider with no account in the ledger is 404.\nThe response lists every account of `P` after the change, followed by\nthe claim accounts frozen by the call."
+              }
+            },
+            {
+              "name": "Reserve a provider's liquidity for a dispatch",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"amount\": {\n    \"asset\": \"USD\",\n    \"amount\": \"40000\"\n  },\n  \"movement\": {\n    \"id\": \"3f6c1c52-0a7e-7b1d-9d34-5a8e2b7c9d10\",\n    \"stage\": \"dispatch\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/providers/:provider/holds",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "providers",
+                    ":provider",
+                    "holds"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    },
+                    {
+                      "key": "provider",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Creates a hold on `custody(P)`, the provider's custody account, so a\npayout or dispatch reserves the provider's liquidity in the same\ntransaction as the stage that names it (ADR-020 section 3). It is\n`POST /v1/holds` with the account chosen by the ledger: the hold, its\nidempotency, expiry, events and `movement` tag are the same. Requires\nthe `ledger:write` scope.\n\nChoosing `P` (preferred provider, cheapest, largest balance) stays in\nthe tenant's router; the ledger only checks that `P` can pay. The hold\nis refused with 422 `insufficient_funds` when `P`'s available custody\n(posted minus active holds) is below the amount, whatever the account's\n`allow_negative`, and with 422 `account_inactive` while `P` is frozen\n(`POST /v1/ledgers/{id}/providers/{provider}/freeze`). Concurrent\ndispatches serialize on the custody balance row: they never reserve\nmore than `P` holds.\n\n`custody(P)` is the one leaf `asset` account of the ledger that\nidentifies `P` (`metadata.provider`, or the `provider` path segment;\nnames compare in lower case), with `fund_class: customer` and\n`liquidity: liquid`: the accounts `GET /v1/ledgers/{id}/provider-exposure`\ncounts as custody. A provider with none is 404; one with several is 409,\nand the client names the account with `POST /v1/holds`. Send neither\n`account_id` nor `ledger_id`."
+              }
+            },
+            {
+              "name": "Unfreeze every account of a provider",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Provider reinstated\",\n  \"case_ref\": \"CASE-12\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/providers/:provider/unfreeze",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "providers",
+                    ":provider",
+                    "unfreeze"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    },
+                    {
+                      "key": "provider",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Returns every frozen account of provider `P` in the ledger (same\nselection as `POST /v1/ledgers/{id}/providers/{provider}/freeze`) to\n`active`, whatever its mode, in one database transaction. Requires the\n`ledger:write` scope. Accounts that are active or closed are left as\nthey are, so a retry changes nothing and emits nothing. `reason` is\nrequired and `case_ref` optional; they go to the audit log\n(`account.unfreeze`) and `ledger.account.updated`. A provider with no\naccount in the ledger is 404."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Accounts",
+          "item": [
+            {
+              "name": "List accounts",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "type",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "List accounts"
+              }
+            },
+            {
+              "name": "Create an account",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"name\": \"customer:cust_42:wallet\",\n  \"type\": \"liability\",\n  \"normal_balance\": \"CREDIT\",\n  \"allow_negative\": false,\n  \"fund_class\": \"customer\",\n  \"metadata\": {\n    \"customer_id\": \"cust_42\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts"
+                  ]
+                },
+                "description": "Create an account"
+              }
+            },
+            {
+              "name": "Get an account",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get an account"
+              }
+            },
+            {
+              "name": "Freeze, unfreeze or close an account, or change its overdraft policy, fund class or liquidity",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"frozen\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Changes the account's `status`, `allow_negative`, `fund_class` and/or\n`liquidity` (a `claim` is for assets only, 400 otherwise); send at least\none. Fields left out keep their value. Requires the\n`ledger:write` scope. Every change also leaves an `audit_log` row\n(`account.update`) with the previous and the new values.\n\n- `active` <-> `frozen` move freely. A frozen account rejects every\n  new transaction and hold (422 `account_inactive`); captures and\n  releases of holds it already has still work.\n- `closed` is **final**: a closed account cannot be reopened, frozen\n  or have its policy changed (409 `conflict`).\n- Only an **empty** account can be closed: zero posted balance, no\n  active holds and no draft transactions pending in every asset it\n  has touched. Otherwise 409 `conflict` — drain it, release or capture\n  its holds and post or discard its drafts first.\n- Lowering `allow_negative` to `false` on an account that is already\n  below zero is accepted: it can be refilled but not taken lower.\n- Only a postable account can be changed. A parent (`postable:\n  false`) receives no movements, so its status and policy would govern\n  nothing: 422 `account_not_postable` — change its children instead,\n  or freeze the whole subtree at once with\n  `POST /v1/accounts/{id}/freeze`.\n- A `frozen` status set here is a freeze of mode `all` with no reason;\n  to freeze only the debits or the credits, or to record a reason and a\n  case reference, use `POST /v1/accounts/{id}/freeze`.\n\nThe change waits for the transactions and holds already in flight on\nthe account and blocks new ones until it commits, so a freeze or close\nnever lands between a movement's status check and its commit.\n\nEvery change emits `ledger.account.updated` with the new and the\nprevious values. A request that changes nothing returns the account\nas it is and emits nothing, so retries are safe without an\nidempotency key."
+              }
+            },
+            {
+              "name": "Freeze an account and everything under it",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mode\": \"debits\",\n  \"reason\": \"Court order 2026-1187\",\n  \"case_ref\": \"CASE-7\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id/freeze",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id",
+                    "freeze"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Freezes the account **and every account under its path** in one database\ntransaction, so no movement commits between the first leaf and the last\nand none commits on any leaf once the call returns. It works on a parent\n(`postable: false`), which `PATCH /v1/accounts/{id}` refuses: call it on\na holder's parent account to freeze the holder's whole subtree (ADR-020).\nRequires the `ledger:write` scope.\n\n`mode` says which postings a frozen account still refuses, read against\nthe **direction of each posting**: `all` (the default) refuses every\nposting; `debits` refuses DEBIT postings and accepts CREDIT ones (on a\nwallet: the money going out is blocked, a deposit still lands);\n`credits` is the opposite. Holds reserve money a later debit spends on a\ncredit-normal account, so they follow `debits` there. A refused posting\nfails with 422 `account_inactive`. `frozen_override` still relaxes a\nfreeze of any mode.\n\n`reason` is required (1 to 1024 characters) and `case_ref` is optional\n(up to 128 characters, e.g. a compliance case number). Both are stored\non every account that changes, written to the audit log\n(`account.freeze`, one row per account that changed) and sent in\n`ledger.account.updated`.\n\nClosed accounts are skipped. An account already frozen with the same\nmode, reason and case reference is left as it is, so a retry changes\nnothing and emits nothing; with another mode or reason, it replaces\nthem. The response lists every account of the subtree after the change."
+              }
+            },
+            {
+              "name": "Unfreeze an account and everything under it",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Cleared by compliance\",\n  \"case_ref\": \"CASE-7\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id/unfreeze",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id",
+                    "unfreeze"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Returns every frozen account of the subtree (the account and everything\nunder its path) to `active`, whatever its mode, in one database\ntransaction. Requires the `ledger:write` scope. Accounts that are active\nor closed are left as they are, so a retry changes nothing and emits\nnothing.\n\n`reason` is required (1 to 1024 characters) and `case_ref` is optional\n(up to 128 characters). They are written to the audit log\n(`account.unfreeze`, one row per account that changed) and sent in\n`ledger.account.updated`; the accounts themselves keep no freeze state\nonce active. The response lists every account of the subtree after the\nchange."
+              }
+            },
+            {
+              "name": "Get account balances per asset",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id/balances",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id",
+                    "balances"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Returns one balance row per asset the account has ever touched.\n`pending` includes draft transactions and uncaptured holds;\n`available` = posted - active holds against the account.\n\nFor a parent account (`postable: false`) the rows are the sum of its\nwhole subtree — every account whose name starts with the parent's\nname followed by `:` — computed on read, never stored, and signed by\nthe parent's `normal_balance`; `version` is the sum of the members'\nversions and `aggregate` is `true`."
+              }
+            },
+            {
+              "name": "List the postings that hit an account",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id/entries",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id",
+                    "entries"
+                  ],
+                  "query": [
+                    {
+                      "key": "asset",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "metadata_key",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Metadata filter, used together with `metadata_value` (exact match)."
+                    },
+                    {
+                      "key": "metadata_value",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Value `metadata_key` must have, exactly."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "On a parent account (one with sub-accounts under its path) the list\ncovers the postings of its whole subtree. `metadata_key` and\n`metadata_value` keep only the postings of transactions whose metadata\nhas exactly that pair."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transactions",
+          "item": [
+            {
+              "name": "List transactions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "account_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "metadata_key",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Metadata filter, used together with `metadata_value` (exact match)."
+                    },
+                    {
+                      "key": "metadata_value",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Value `metadata_key` must have, exactly."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "Filters combine with AND. `account_id` keeps the transactions with a\nposting on that account or, for a parent account, anywhere in its\nsubtree (404 if the account does not exist for the tenant).\n`metadata_key` + `metadata_value` keep the transactions whose\nmetadata has exactly that pair (exact string match; both or neither).\nThe pair goes through the write-side metadata rules, so a key or value\nthat looks like personal data is refused with `metadata_pii_detected`\n(422) and never echoed. Pagination is the same keyset on\n`(created_at, id)` with or without filters."
+              }
+            },
+            {
+              "name": "Create a transaction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"description\": \"Customer USD deposit\",\n  \"postings\": [\n    {\n      \"account_id\": \"5e4f0a2b-3c4d-7e6f-b072-9a0b1c2d3e4f\",\n      \"direction\": \"DEBIT\",\n      \"amount\": {\n        \"asset\": \"USD\",\n        \"amount\": \"10000\"\n      }\n    },\n    {\n      \"account_id\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n      \"direction\": \"CREDIT\",\n      \"amount\": {\n        \"asset\": \"USD\",\n        \"amount\": \"9700\"\n      }\n    },\n    {\n      \"account_id\": \"6f5a1b3c-4d5e-7f80-c193-0b1c2d3e4f5a\",\n      \"direction\": \"CREDIT\",\n      \"amount\": {\n        \"asset\": \"USD\",\n        \"amount\": \"300\"\n      }\n    }\n  ],\n  \"metadata\": {\n    \"channel\": \"bank_transfer\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions"
+                  ]
+                },
+                "description": "Creates a balanced transaction. With `status=posted` (default) it is\natomically validated and posted; with `status=draft` it can be posted\nlater via `POST /v1/transactions/{id}/post` or abandoned via\n`POST /v1/transactions/{id}/discard`.\n\n`idempotency_key` is unique per tenant: retrying with the same key\nreturns the original transaction instead of creating a duplicate\n(200 with the `X-Idempotent-Replay: true` response header). The key\nmay be sent in the body or via the `Idempotency-Key` request header.\n\nA `frozen` account rejects new transactions (`account_inactive`). Facts\nthe platform must record whatever the customer does — a payout the bank\nalready paid, a chargeback the PSP already deducted, a seizure order —\ncarry `frozen_override`: it relaxes `frozen` (never `closed`) on the\naccounts the transaction touches, needs the `ledger:frozen_override`\nscope (403 without it) and a reason (400 without it), and leaves an\naudited `transaction.frozen_override` row. Balance, overdraft, periods\nand metadata rules still apply."
+              }
+            },
+            {
+              "name": "Get a transaction",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a transaction"
+              }
+            },
+            {
+              "name": "Post a draft transaction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions/:id/post",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions",
+                    ":id",
+                    "post"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Transitions a draft transaction to posted. Idempotent for\nalready-posted transactions. A reversed or discarded transaction\ncannot be posted (409 `conflict`). Requires the `ledger:write` scope."
+              }
+            },
+            {
+              "name": "Discard a draft transaction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions/:id/discard",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions",
+                    ":id",
+                    "discard"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Transitions a `draft` to the terminal status `discarded`: its pending\namounts are released from the accounts' balances, it never receives a\njournal number and never enters the hash chain, and the call leaves an\n`audit_log` row (`transaction.discard`). Emits\n`ledger.transaction.discarded`. The postings stay (they are\nappend-only) and are excluded by the status. No request body.\n\nAllowed even when the draft's `effective_at` falls in a soft- or\nhard-closed accounting period: it is the way out for a draft stuck\nthere. Idempotent: discarding an already-discarded transaction returns\nit unchanged. A posted or reversed transaction cannot be discarded\n(409 `conflict`); reverse a posted one instead. Requires the\n`ledger:write` scope."
+              }
+            },
+            {
+              "name": "Reverse a posted transaction",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"reason\": \"partial chargeback\",\n  \"amount\": {\n    \"asset\": \"USD\",\n    \"amount\": \"4000\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/transactions/:id/reverse",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "transactions",
+                    ":id",
+                    "reverse"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Creates and posts a new compensating transaction with mirrored\npostings, links both, and marks the original as reversed.\nThe compensating transaction is announced with\n`ledger.transaction.posted`, followed by `ledger.transaction.reversed`.\n\nReversing onto a `frozen` account is rejected (`account_inactive`)\nunless the body carries `frozen_override` (a chargeback the PSP already\ndeducted must be recorded even if the customer is frozen); see\n`POST /v1/transactions`. The audit row names the reversal and the\noriginal in `reverses`.\n\n`metadata` is copied onto the reversal and into\n`ledger.transaction.reversed`, checked like a transaction's metadata\n(scalars, no personal data, the ledger's `transaction_keys` allowlist).\nIt is part of the idempotency fingerprint: a retry with other metadata\nunder the same key is a 409. A reversal without `metadata` is\nunchanged.\n\n`movement` writes the reversal as a stage of a staged movement\n(ADR-019); see `POST /v1/transactions`. A reversal does not inherit the\noriginal's movement: when it touches a transit account it must name\none (422 `movement_required`), and it cannot take the movement's\ntransit below zero (422 `movement_transit_overdrawn`). A failure\nbefore the movement ends is reversed with stage `fail` on the same\nmovement.\n\n`amount` reverses only part of a single-asset transaction (a partial\nchargeback). Each side's postings are scaled pro rata to it (largest\nremainder), so a fee leg gives back its share; the reversal keeps\n`reverses`. It needs an `idempotency_key` (the default key names only\nthe original). The original stays `posted` until the reversals in\nforce cover all of it; the one that does sets `reversed_by` and\n`status: reversed`. Asking for more than is left is a 409; a reversal\nitself is only reversed in full (400 `validation_failed`).\n`ledger.transaction.reversed` carries `partial`, `asset` and `amount`\nfor a partial reversal.\n\n`account_overrides` moves a leg of the reversal onto another account\nof the same ledger (original account id -> replacement id), e.g. a\nchargeback charged to another account of the same holder. The ledger\nhas no holder object (ADR-020), so \"same holder\" is the caller's\nclaim; the replacement is checked like any posting (status, freeze,\noverdraft). Both fields are part of the idempotency fingerprint.\n\nReversing a reversal (a dispute won) gives the money back but leaves\nthe original `status: reversed`; `GET /v1/transactions/{id}` returns\nthe effective state in `reversal`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Periods",
+          "item": [
+            {
+              "name": "List a ledger's accounting periods",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/periods",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "periods"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "List a ledger's accounting periods"
+              }
+            },
+            {
+              "name": "Create an accounting period",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"name\": \"2026-09\",\n  \"starts_at\": \"2026-09-01T00:00:00Z\",\n  \"ends_at\": \"2026-10-01T00:00:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/periods",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "periods"
+                  ]
+                },
+                "description": "Appends an `open` period `[starts_at, ends_at)` to a ledger. The\nperiods of a ledger are contiguous: the first one may start anywhere,\neach next one must start exactly at the last one's `ends_at` (400\n`validation_failed` otherwise), so they never overlap or leave gaps.\nDates outside every period are not governed, and a ledger without\nperiods behaves as if periods did not exist. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Close a period (soft or hard)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"hard_closed\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/periods/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "periods",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Moves the period forward: `open` -> `soft_closed` -> `hard_closed`\n(`soft_closed` may be skipped). Setting the current status again is a\nno-op. Going back, including reopening a hard close, is 409\n`conflict`. Each real transition writes a `period.transition` row to\nthe audit log in the same database transaction. Requires\n`ledger:write`.\n\n- `soft_closed`: only adjustments of this period\n  (`adjusts_period_id`) may be dated in it.\n- `hard_closed`: no transaction may be dated in it (422\n  `period_closed`); correct it with an adjustment dated in an open\n  period."
+              }
+            }
+          ]
+        },
+        {
+          "name": "AdjustmentRequests",
+          "item": [
+            {
+              "name": "List a ledger's adjustment requests",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "Newest first. `status=pending` lists what checkers have to review. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Propose an adjustment (maker)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"description\": \"Missed September fee\",\n  \"effective_at\": \"2026-09-30T23:00:00Z\",\n  \"adjusts_period_id\": \"0a1b2c3d-4e5f-7a8b-9c0d-1e2f3a4b5c6d\",\n  \"postings\": [\n    {\n      \"account_id\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n      \"direction\": \"DEBIT\",\n      \"amount\": {\n        \"asset\": \"USD\",\n        \"amount\": \"5000\"\n      }\n    },\n    {\n      \"account_id\": \"6f5a1b3c-4d5e-7f80-c193-0b1c2d3e4f5a\",\n      \"direction\": \"CREDIT\",\n      \"amount\": {\n        \"asset\": \"USD\",\n        \"amount\": \"5000\"\n      }\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests"
+                  ]
+                },
+                "description": "Records the complete proposed adjustment — postings, metadata,\n`effective_at`, `adjusts_period_id` — made by the calling identity (the\nmaker), in status `pending`. It is judged now as a transaction would\nbe (accounts, metadata allowlist, period rules) and again when it is\nexecuted. The server computes `request_hash` (SHA-256 of its canonical\nform, see docs/maker-checker.md); after that the content never\nchanges. Two other identities must approve that hash before the\nrequest can be executed. Requires `ledger:write`.\n\n`idempotency_key` is unique per tenant: the same key and content\nreplays the request (200 + `X-Idempotent-Replay: true`); the same key\nwith other content is 409 `idempotency_conflict`."
+              }
+            },
+            {
+              "name": "Get an adjustment request",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The request with its approvals. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Approve an adjustment request (checker)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests/:id/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests",
+                    ":id",
+                    "approve"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Records the calling identity's approval of the `request_hash` it\nreviewed. The maker cannot approve (403 `self_approval`), an identity\napproves once (409 `conflict`), and the hash must be the request's\n(409 `request_hash_mismatch`). The second approval moves the request\nto `approved`. Only a `pending` request takes approvals. Audited.\nRequires `ledger:write`."
+              }
+            },
+            {
+              "name": "Reject a pending adjustment request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests/:id/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests",
+                    ":id",
+                    "reject"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "`pending` -> `rejected`, final. Stopping a request moves no money, so\nany identity with `ledger:write` may do it; rejecting a rejected\nrequest is a no-op. Audited."
+              }
+            },
+            {
+              "name": "Cancel a pending or approved adjustment request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests/:id/cancel",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests",
+                    ":id",
+                    "cancel"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "`pending` or `approved` -> `cancelled`, final (e.g. the period was\nhard-closed after the approvals). Cancelling a cancelled request is a\nno-op. Audited. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Execute an approved adjustment request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/adjustment-requests/:id/execute",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "adjustment-requests",
+                    ":id",
+                    "execute"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Writes the request's transaction, posted and never as a draft\n(ADR-009), through the normal path\n(period rules, metadata allowlist, overdraft, journal hash chain), with\nidempotency key `adjustment-request:<id>`, and links request and\ntransaction (`transaction_id`). Exactly once: a repeated or concurrent\nexecution returns the same transaction (200 +\n`X-Idempotent-Replay: true`). If the transaction is refused (e.g. the\nperiod was hard-closed meanwhile) the request stays `approved`.\nAudited. Requires `ledger:write`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Holds",
+          "item": [
+            {
+              "name": "Create a hold",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"account_id\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"amount\": {\n    \"asset\": \"USD\",\n    \"amount\": \"2500\"\n  },\n  \"expires_at\": \"2026-07-31T00:00:00Z\",\n  \"metadata\": {\n    \"card_auth_id\": \"auth_9f3\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/holds",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "holds"
+                  ]
+                },
+                "description": "Reserves funds on an account (reducing `available` without moving\nmoney) until captured or released.\n\n`idempotency_key` is unique per tenant: retrying with the same key\nreturns the original hold (200 + `X-Idempotent-Replay: true`).\n\nAt `expires_at` the hold expires (ADR-016): a sweeper in ledger-core\n(every `LEDGERCORE_HOLD_SWEEP_INTERVAL`, default 1m) moves it to\n`expired`, frees the reservation and emits `ledger.hold.expired`.\nUntil then the funds stay reserved, but a capture or release past\n`expires_at` is already 409 `hold_expired` (and frees them at once).\n\nA hold is for short authorizations. A payout already sent to a bank is\nnot one: once the hold expires the funds are free to spend and the\nbank's confirmation can no longer be booked. Book it through\n`liabilities:payouts_in_flight:<provider>` instead\n(`docs/payouts-en-vuelo.md`)."
+              }
+            },
+            {
+              "name": "Get a hold",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/holds/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "holds",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a hold"
+              }
+            },
+            {
+              "name": "Capture a hold",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": {\n    \"asset\": \"USD\",\n    \"amount\": \"2000\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/holds/:id/capture",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "holds",
+                    ":id",
+                    "capture"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Finalizes the hold (fully or partially): the held funds are freed and\nthe hold is marked captured, optionally linked to the posted\ntransaction that moved the money. A partial capture releases the\nremainder. Capture does not create the transaction itself — post it\nvia `POST /v1/transactions` and link it with `transaction_id`.\nA hold past `expires_at` is 409 `hold_expired`, whether or not the\nsweeper has already marked it `expired`.\n\n`movement` writes the capture as a stage of the staged movement the\nhold belongs to (ADR-019; 400 `validation_failed` when the hold belongs\nto another one or to none). The movement's row is locked first and the\nstage judged against its status; a capture that is refused (expired,\nnot active, stage too late) moves nothing."
+              }
+            },
+            {
+              "name": "Release a hold",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"movement\": {\n    \"id\": \"5d4e0f2a-3b4c-7d5e-a071-9f0a1b2c3d4e\",\n    \"stage\": \"fail\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/holds/:id/release",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "holds",
+                    ":id",
+                    "release"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Frees the reserved funds without moving money. A hold past\n`expires_at` is 409 `hold_expired` (its funds are freed by expiry).\n\nThe optional body carries `movement`, which writes the release as a\nstage of the staged movement the hold belongs to (ADR-019), judged like\na capture's."
+              }
+            }
+          ]
+        },
+        {
+          "name": "FXQuotes",
+          "item": [
+            {
+              "name": "Create an FX quote",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"base_asset\": \"USD\",\n  \"quote_asset\": \"EUR\",\n  \"rate\": \"0.9213\",\n  \"source\": \"desk\",\n  \"expires_at\": \"2026-10-19T12:05:00Z\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/fx-quotes",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "fx-quotes"
+                  ]
+                },
+                "description": "Records an immutable rate between two assets: 1 unit of `base_asset`\nis `rate` units of `quote_asset`, both in major units. A quote is a\nrate, not an execution: it may back any number of posting groups\nuntil `expires_at`, and it can never be changed or deleted. Not\nidempotent: every call creates a new quote. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Get an FX quote",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/fx-quotes/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "fx-quotes",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Requires `ledger:read`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "PostingGroups",
+          "item": [
+            {
+              "name": "Create a posting group",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"reference\": \"conv-0007\",\n  \"fx\": {\n    \"quote_id\": \"4d3e9f50-2c4d-7e6f-9072-8b0c2d3e4f5a\",\n    \"account_id\": \"5e4f0a61-3d5e-7f80-a183-9c1d3e4f5a6b\"\n  },\n  \"transactions\": [\n    {\n      \"reference\": \"conv-0007-usd\",\n      \"postings\": [\n        {\n          \"account_id\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n          \"direction\": \"DEBIT\",\n          \"amount\": {\n            \"asset\": \"USD\",\n            \"amount\": \"10000\"\n          }\n        },\n        {\n          \"account_id\": \"5e4f0a61-3d5e-7f80-a183-9c1d3e4f5a6b\",\n          \"direction\": \"CREDIT\",\n          \"amount\": {\n            \"asset\": \"USD\",\n            \"amount\": \"10000\"\n          }\n        }\n      ]\n    },\n    {\n      \"reference\": \"conv-0007-eur\",\n      \"postings\": [\n        {\n          \"account_id\": \"5e4f0a61-3d5e-7f80-a183-9c1d3e4f5a6b\",\n          \"direction\": \"DEBIT\",\n          \"amount\": {\n            \"asset\": \"EUR\",\n            \"amount\": \"9213\"\n          }\n        },\n        {\n          \"account_id\": \"6f5a1b72-4e6f-7081-b294-0d2e4f5a6b7c\",\n          \"direction\": \"CREDIT\",\n          \"amount\": {\n            \"asset\": \"EUR\",\n            \"amount\": \"9213\"\n          }\n        }\n      ]\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-groups",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-groups"
+                  ]
+                },
+                "description": "Writes two or more posted, single-asset transactions atomically: all\nmembers commit or none does. Each member goes through the normal\nposting path (balance per asset, periods, metadata allowlist,\noverdraft, account status, hash chain) and carries `posting_group_id`.\nA member that mixes assets is 400 `validation_failed`. Requires\n`ledger:write`.\n\nWith `fx`, the group cites an FX quote and a conversion account.\nAcross the members, that account's net movement in the base asset and\nin the quote asset must be non-zero, of opposite sign, and the quote\namount must equal the base amount times the rate within one minor unit\n(422 `fx_rate_mismatch`). The quote must not be expired\n(422 `fx_quote_expired`). An invalid quote, rate or group is 400\n`validation_failed`.\n\n`idempotency_key` covers the whole group: the same key and payload\nreplays it (200 + `X-Idempotent-Replay: true`); the same key with\nanother payload is 409 `idempotency_conflict`. The key may be sent in\nthe body or via the `Idempotency-Key` request header. Members get the\nderived keys `<key>/1`, `<key>/2`, …."
+              }
+            },
+            {
+              "name": "Get a posting group",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-groups/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-groups",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The group with its member transactions. Requires `ledger:read`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "PostingRules",
+          "item": [
+            {
+              "name": "List a ledger's posting rules",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-rules"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "event_type",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only the versions of this event type."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "Every published version, newest first; `event_type` narrows the list\nto one event type. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Publish a posting rule",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"event_type\": \"card.settled\",\n  \"description\": \"Card settlement net of the processor fee\",\n  \"lines\": [\n    {\n      \"account\": \"processor_clearing\",\n      \"direction\": \"DEBIT\",\n      \"amount\": \"net\"\n    },\n    {\n      \"account\": \"fee_expense\",\n      \"direction\": \"DEBIT\",\n      \"amount\": \"fee\"\n    },\n    {\n      \"account\": \"customer_wallet\",\n      \"direction\": \"CREDIT\",\n      \"amount\": \"gross\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-rules"
+                  ]
+                },
+                "description": "Publishes the next version of the rule for `event_type` in a ledger.\nA rule maps a canonical event to the lines of one transaction: each\nline names an account (a fixed `account_id`, or an `account` role the\nevent fills), a `direction`, the name of one of the event's `amount`s\nand, optionally, an `asset` (default: the event's). Rules are\nimmutable and versioned: publishing never edits an earlier version,\nand each version carries a `rule_hash` over its event type, computed\namounts and lines.\n\nSince ADR-027 a rule may also declare `computed` amounts (`sum`,\n`sub`, or `mul` by a decimal `factor` with a declared `rounding`), lines\nthat repeat over a list of the event (`each`), and `signed` lines whose\nnegative amount books the other side, optionally on a\n`negative_account_id` / `negative_account`. A rule without them\nevaluates and hashes exactly as before.\nNot idempotent: every call publishes a new version. Requires\n`ledger:write`."
+              }
+            },
+            {
+              "name": "Get a posting rule",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-rules/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-rules",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Book a canonical event",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"event_type\": \"card.settled\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"asset\": \"USD\",\n  \"amounts\": {\n    \"gross\": \"10000\",\n    \"fee\": \"250\",\n    \"net\": \"9750\"\n  },\n  \"accounts\": {\n    \"processor_clearing\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n    \"fee_expense\": \"5e4f0a61-3d5e-7f80-a183-9c1d3e4f5a6b\",\n    \"customer_wallet\": \"6f5a1b72-4e6f-7081-b294-0d2e4f5a6b7c\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-events",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-events"
+                  ]
+                },
+                "description": "Applies the rule for `event_type` (the latest version, or\n`rule_version` when given) to the event's `amounts` and `accounts` and\nposts the resulting transaction through the normal posting path\n(balance per asset, periods, metadata allowlist, overdraft, account\nstatus, hash chain). The transaction carries `posting_rule_id`. An\namount of `0` skips its lines. `lists` feed the rule's repeated lines\n(ADR-027); computed amounts are derived, never supplied. A rule with\n`fx` (ADR-028) books a posting group instead, one member per asset\nunder the keys `<idempotency_key>/1`, `/2`, …, citing `fx_quote_id`;\nsuch an event cannot settle a hold and its key is at most 240\ncharacters. Every amount and role the rule names\nmust be supplied, and nothing else (400 `validation_failed`). The\npostings must balance (422 `unbalanced_transaction`). An unknown\n`event_type` or `rule_version` is 404. Requires `ledger:write`.\n\n`hold_id` (optional) settles an active hold in the same booking: the\ntransaction captures it, as on `POST /v1/transactions`. A hold past its\n`expires_at` is 409 `hold_expired`.\n\n`idempotency_key` is required and may be sent in the body or via the\n`Idempotency-Key` request header (the body field wins). The same key\nand payload replays the event (200 + `X-Idempotent-Replay: true`).\nThe same key with another payload, or a key already held by a plain\ntransaction, is 409 `idempotency_conflict`."
+              }
+            },
+            {
+              "name": "Get a posting event",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-events/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-events",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The event with the transaction it booked. Requires `ledger:read`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "LedgerTransfers",
+          "item": [
+            {
+              "name": "Create a transfer between ledgers",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"reference\": \"xfer-0001\",\n  \"source\": {\n    \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n    \"due_account_id\": \"7a6b2c83-5f70-7192-c3a5-1e3f5a6b7c8d\",\n    \"postings\": [\n      {\n        \"account_id\": \"2b1c7d3f-0a2b-7c4d-9e50-6f8a0b1c2d3e\",\n        \"direction\": \"CREDIT\",\n        \"amount\": {\n          \"asset\": \"USD\",\n          \"amount\": \"10000\"\n        }\n      },\n      {\n        \"account_id\": \"7a6b2c83-5f70-7192-c3a5-1e3f5a6b7c8d\",\n        \"direction\": \"DEBIT\",\n        \"amount\": {\n          \"asset\": \"USD\",\n          \"amount\": \"10000\"\n        }\n      }\n    ]\n  },\n  \"target\": {\n    \"ledger_id\": \"2a1b0c9d-8e7f-7a6b-9c5d-4e3f2a1b0c9d\",\n    \"due_account_id\": \"8b7c3d94-6a81-72a3-d4b6-2f4a6b7c8d9e\",\n    \"postings\": [\n      {\n        \"account_id\": \"9c8d4ea5-7b92-73b4-e5c7-3a5b7c8d9eaf\",\n        \"direction\": \"DEBIT\",\n        \"amount\": {\n          \"asset\": \"USD\",\n          \"amount\": \"10000\"\n        }\n      },\n      {\n        \"account_id\": \"8b7c3d94-6a81-72a3-d4b6-2f4a6b7c8d9e\",\n        \"direction\": \"CREDIT\",\n        \"amount\": {\n          \"asset\": \"USD\",\n          \"amount\": \"10000\"\n        }\n      }\n    ]\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledger-transfers",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledger-transfers"
+                  ]
+                },
+                "description": "Moves value between two different ledgers of the tenant. A ledger never\nholds an entry that crosses ledgers, so a transfer is two posted\ntransactions, one per ledger, written atomically: both commit or\nneither does. Each side names its `ledger_id`, its `due_account_id`\n(the inter-ledger due-to / due-from account of that ledger) and its\n`postings`, and goes through the normal posting path (balance per\nasset, every posting in its own ledger, periods, metadata allowlist,\noverdraft, account status, hash chain). Both transactions carry\n`transfer_id`.\n\nThe due accounts must eliminate: per asset, the net movement of the\nsource due account plus that of the target due account is zero, and\nthe source due account must move (422 `transfer_unbalanced`). Both\nsides naming the same ledger, or a posting in the wrong ledger, is\n400 `validation_failed`.\n\n`idempotency_key` covers the whole transfer: the same key and payload\nreplays it (200 + `X-Idempotent-Replay: true`); the same key with\nanother payload is 409 `idempotency_conflict`. The key may be sent in\nthe body or via the `Idempotency-Key` request header. The two\ntransactions get the derived keys `<key>/source` and `<key>/target`;\nif one of those is already held by another transaction the call is\n409 `idempotency_conflict`. Requires `ledger:write`.\n\nA side may swap the asset it received through a conversion account.\nWith `fx` (`quote_id`, `account_id`) the transfer cites an FX quote\nand that conversion account, which belongs to either side; its legs\nacross both sides are judged exactly as in a posting group: opposite\nsigns and the quote amount equal to the base amount times the rate\nwithin one minor unit (422 `fx_rate_mismatch`), quote not expired\n(422 `fx_quote_expired`). Without `fx` nothing prices the conversion,\nunless a ledger has `require_fx_quote` on: then a transfer that moves\nmore than one asset is refused with 422 `fx_quote_required` when\neither of its ledgers has it (`PUT /v1/ledgers/{id}/fx-policy`). The\nquote is part of the request for idempotency."
+              }
+            },
+            {
+              "name": "Get a transfer between ledgers",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledger-transfers/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledger-transfers",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The transfer with its two transactions. Requires `ledger:read`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Movements",
+          "item": [
+            {
+              "name": "List movements",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/movements",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "movements"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "A status, or `open` for every movement that has not ended"
+                    },
+                    {
+                      "key": "type",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "reference",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Exact match on the tenant's reference."
+                    },
+                    {
+                      "key": "opened_before",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only movements opened strictly before this instant (RFC 3339)."
+                    },
+                    {
+                      "key": "opened_after",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only movements opened strictly after this instant (RFC 3339)."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "The tenant's movements, newest first by `opened_at`. Every filter is\noptional and they combine. To find the operations that have been going\nfor too long: `status=open&opened_before=<now minus the age>`.\nRequires `ledger:read`."
+              }
+            },
+            {
+              "name": "Open a movement",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"ledger_id\": \"1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21\",\n  \"idempotency_key\": \"{{idempotencyKey}}\",\n  \"type\": \"remittance\",\n  \"reference\": \"order-8841\",\n  \"metadata\": {\n    \"corridor\": \"US-MX\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/movements",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "movements"
+                  ]
+                },
+                "description": "Opens a staged movement (ADR-019): one operation of the tenant in one\nledger, such as a remittance or a payroll run. It starts in status\n`open`; later steps of this feature move it forward and close it. The\nledger gives no meaning to `type` (the tenant's own label) or to\n`reference` (the tenant's id for the operation, not unique).\n\n`idempotency_key` is required: the same key and request replays the\nmovement already opened (200 + `X-Idempotent-Replay: true`); the same\nkey with another ledger, type, reference, quote or metadata is 409\n`idempotency_conflict`. The key may be sent in the body or via the\n`Idempotency-Key` request header. `metadata` follows the rules and the\n`transaction_keys` allowlist of a transaction's. Requires\n`ledger:write`.\n\n`parent_movement_id` opens a **return** (a refund or chargeback) of a\n`completed` movement of the same ledger (ADR-019 §6): 404 when it does\nnot exist, 409 `movement_stage_invalid` when it has not completed,\n400 when it is itself a return. Its first write is usually a full or\npartial reversal (`amount`) of the parent's `complete` transaction,\ntagged with the return movement, which puts the money back in its\ntransit; it completes by paying the origin. The parent's `figures`\nthen net the return."
+              }
+            },
+            {
+              "name": "Sum movement figures by type",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/movements/summary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "movements",
+                    "summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Closed at or after this instant (RFC 3339)."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Closed strictly before this instant (RFC 3339); after `from`."
+                    }
+                  ]
+                },
+                "description": "Sums the revenue, cost and margin of the movements **closed** in\n`[from, to)` (on `closed_at`), by `type` and asset (ADR-019 §5). Each\nmovement counts only its own writes: a return shows under its own type\n(e.g. a negative margin under `refund`) and nothing is counted twice.\nGrouping by a metadata dimension is roadmap 6.7. Requires\n`ledger:read`."
+              }
+            },
+            {
+              "name": "Get a movement",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/movements/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "movements",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Close a movement",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"outcome\": \"completed\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/movements/:id/close",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "movements",
+                    ":id",
+                    "close"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Requires `ledger:write`. Makes the movement terminal with `outcome`\n(ADR-019 §2, §4). `completed` needs the movement to have reached\n`captured`; `failed` and `cancelled` are accepted from any status that\nhas not ended. In the same database transaction the close:\n\n- releases the movement's still-active holds (`ledger.hold.released`\n  with `reason: movement_closed`), so no reservation outlives its\n  operation;\n- computes the movement's transit per asset and, when it is not zero,\n  records it as `transit_residual`. The close is **not refused** for a\n  residual: the outcome is a fact. Only writes at stage `correct` can\n  bring it back to zero (see `MovementRef`);\n- emits `ledger.movement.closed`, with the residual (empty when none).\n\nIdempotent by outcome, so it takes no idempotency key: closing again\nwith the same outcome returns the movement unchanged; another outcome is\n409 `movement_closed`. A tagged write can also close its movement in the\nsame call with `movement.close`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Audit",
+          "item": [
+            {
+              "name": "Read the tenant's audit trail",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/audit-log",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "audit-log"
+                  ],
+                  "query": [
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only entries at or after this instant."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Only entries before this instant."
+                    },
+                    {
+                      "key": "action",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Exact action, e.g. `account.update`."
+                    },
+                    {
+                      "key": "resource_type",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "resource_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size, 1 to 200 (default 50)."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque `next_cursor` of the previous page."
+                    }
+                  ]
+                },
+                "description": "The privileged actions this service recorded for the tenant (who, what,\nwhen, with the minimum state before and after), oldest first, filtered\nby date, action and resource. Each entry carries its place in the\ntenant's hash chain (`chain_seq`, `prev_hash`, `entry_hash`; canonical\nform in `docs/audit-log.md`), so a reader can check a page link by link\nor call `GET /v1/audit-log/verify`. Only this service's actions are\nhere; identity, webhooks and reconciliation keep their own trails.\nRead-only. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Check the tenant's audit hash chain",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/audit-log/verify",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "audit-log",
+                    "verify"
+                  ]
+                },
+                "description": "Recomputes the whole chain and reports its head and every broken link:\n`seq_gap` (a row is missing or numbers were rewritten), `prev_hash`\n(the row does not link to the one before) and `entry_hash` (its\ncontents no longer hash to the stored value). `ok` is true when there\nare none. The check runs inside the database, so a rewrite that also\nre-hashes the rows after it passes; compare `head` with the head\npublished by the operator's `anchor-heads` / `audit-verify -anchor`\nto catch that. Read-only; its cost grows with the tenant's trail.\nRequires `ledger:read`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reports",
+          "item": [
+            {
+              "name": "Trial balance",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/trial-balance",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "trial-balance"
+                  ],
+                  "query": [
+                    {
+                      "key": "ledger_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Start of the period (inclusive). With `from`, only postings of"
+                    },
+                    {
+                      "key": "as_of",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Compute the balance as of this instant: the report is"
+                    }
+                  ]
+                },
+                "description": "Sums debits and credits per account and asset over posted\ntransactions. For a healthy ledger, total debits equal total credits\nper asset.\n\nWith `from` the report becomes a period result: each row sums only\nthe movements whose `effective_at` falls in `[from, as_of]`, so a\nSeptember salary does not leak into October. A transaction reversed\nin a later period contributes its original postings to its own period\nand the reversal's postings to the period of the reversal."
+              }
+            },
+            {
+              "name": "Account statement",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/statements",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "statements"
+                  ],
+                  "query": [
+                    {
+                      "key": "account_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "from",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Period start (inclusive). Defaults to `to` minus 30 days."
+                    },
+                    {
+                      "key": "to",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Period end (inclusive). Defaults to now."
+                    },
+                    {
+                      "key": "metadata_key",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Metadata filter, used together with `metadata_value` (exact match)."
+                    },
+                    {
+                      "key": "metadata_value",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Value `metadata_key` must have, exactly."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's `next_cursor`. A"
+                    }
+                  ]
+                },
+                "description": "`account_id` may be a parent account: the statement then covers its\nwhole subtree (a holder's history in one call), each entry carries the\n`account_id` and `account_path` it hit, and balances are signed by the\nparent's normal balance side. `metadata_key` + `metadata_value`\nrestrict opening, entries and closing to the transactions with exactly\nthat metadata pair, which is the balance of one order, employee or\ncategory inside a shared account.\n\nStatement of one account over a period: opening balance per asset\n(aggregate of postings with `effective_at` strictly before `from`),\nentries ordered by `effective_at` ascending with a per-asset running\nbalance, and the closing balance at `to`. Balances are signed by the\naccount's normal balance side, so a funded credit-normal wallet shows\npositive numbers. Reversed transactions keep contributing (their\ncompensating transaction appears as its own entry). Entries are\nkeyset-paginated; opening/closing always cover the whole period\nregardless of the page."
+              }
+            },
+            {
+              "name": "Provider (counterparty) positions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/provider-positions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "provider-positions"
+                  ]
+                },
+                "description": "Net position against every counterparty (payment provider, bank,\nprocessor), aggregated from the running `account_balances` of asset-\nand liability-type accounts — never from postings.\n\nConvention: an account belongs to a provider when its name/path\ncontains a `provider` segment followed by the provider name —\n`assets:provider:acmepay:usd` or `liabilities/provider/nordpay/mxn`\n(both `:` and `/` work as separators) — or when the account carries\n`metadata.provider` as an explicit override (it wins over the path).\n\n`net` is the signed sum of `posted_debits - posted_credits` across\nthe provider's accounts per asset: positive means the counterparty\nholds value for us (`they_owe_us`), negative means we owe them\n(`we_owe_them`), zero is `flat`.\n\nTenants that do not follow the convention get an empty `data` array\nplus a `hint` explaining how to opt in."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reconciliation",
+      "item": [
+        {
+          "name": "Sources",
+          "item": [
+            {
+              "name": "List sources",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's next_cursor. A malformed"
+                    }
+                  ]
+                },
+                "description": "List sources"
+              }
+            },
+            {
+              "name": "Register an external source",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"chase-operating\",\n  \"kind\": \"bank\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources"
+                  ]
+                },
+                "description": "Register an external source"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Match rules",
+          "item": [
+            {
+              "name": "List a source's match rule versions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/match-rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "match-rules"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "List a source's match rule versions"
+              }
+            },
+            {
+              "name": "Create a match rule version for a source",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"cardinality\": \"one_to_many\",\n  \"group_by\": \"metadata\",\n  \"metadata_key\": \"settlement_id\",\n  \"account_id\": \"0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f\",\n  \"amount_tolerance\": \"0\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/match-rules",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "match-rules"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Match rules say how a run pairs the source's statement rows with\nledger entries. Rules are **immutable**: each `POST` creates version\nn+1 for the source (the first is version 1); to change the logic,\ncreate a new version. A run records the version it used.\n\nA source without rules runs the **built-in rule** (version 0, never\nstored): 1:1 on the transaction idempotency key, exact amount, any\naccount, which is the behavior before rules existed.\n\n`one_to_many` (one statement row settles several ledger entries) and\n`many_to_one` (several statement rows pay one ledger entry) compare\nsums inside a group, so they require `account_id`: the mirror holds\nevery leg of every transaction and a sum over both legs is\nmeaningless."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Custody",
+          "item": [
+            {
+              "name": "List a source's custody balance snapshots",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/custody-balances",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "custody-balances"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's next_cursor. A malformed"
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "List a source's custody balance snapshots"
+              }
+            },
+            {
+              "name": "Record a custodian's reported balance",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"account_id\": \"0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f\",\n  \"asset\": \"USD\",\n  \"as_of\": \"2026-10-18T23:59:59Z\",\n  \"balance\": \"1250000\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/custody-balances",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "custody-balances"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Stores the balance a custodian (bank, PSP) reports for a ledger\naccount at a cut-off, next to the balance the posting mirror gives\nfor the same account and cut-off (ADR-011).\n\n`ledger` = sum of debits minus sum of credits of every mirrored\nposting on the account, in the asset, with `posted_at <= as_of`\n(computed in SQL, it cannot wrap). It is only as complete as the\nmirror: postings from before reconciliation consumed\n`ledger.transaction.posted`, or history the stream lost, are missing.\n\nSnapshots are **append-only**: a correction is a new snapshot. When\n`reported` differs from `ledger`, the snapshot opens a `critical`\n`balance_mismatch` discrepancy (`discrepancy_id`); otherwise\n`discrepancy_id` is null. `difference` is `reported - ledger`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settlement",
+          "item": [
+            {
+              "name": "List a source's settlement batches",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/settlement-batches",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "settlement-batches"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Filter by batch status; omit for all."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's next_cursor. A malformed"
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "List a source's settlement batches"
+              }
+            },
+            {
+              "name": "Declare a settlement batch",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"batch_ref\": \"STL-2026-10-18\",\n  \"account_id\": \"0197f3a2-5b6c-7d8e-9f01-2a3b4c5d6e7f\",\n  \"asset\": \"USD\",\n  \"gross\": \"100000\",\n  \"fees\": \"2900\",\n  \"chargebacks\": \"5000\",\n  \"refunds\": \"0\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/settlement-batches",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "settlement-batches"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Declares what a PSP reports for one settlement: `gross` captured,\n`fees` kept, `chargebacks` and `refunds` netted, so\n`net = gross - fees - chargebacks - refunds` is paid out. The batch is an\nexpectation that is checked, never consumed (ADR-011).\n\n**Evaluation** runs when the batch is created and again on every run\nof the source, while the batch is `open`:\n\n- No statement row with `external_ref` equal to `batch_ref` yet: it\n  stays `open` (captures and payouts arrive on their own schedule).\n- The payout row exists, equals `net` in the batch asset, the\n  ledger captures add up to `gross` and the linked reversals add up\n  to `chargebacks + refunds`: `settled`.\n- Anything else (wrong amount or asset, captures different from\n  `gross`, reversals different from `chargebacks + refunds`, the\n  payout repeated): `mismatched`, and a `high`\n  `settlement_mismatch` discrepancy is opened (`discrepancy_id`).\n\n`settled` and `mismatched` are final: the batch is never evaluated\nagain. **Captures** are the debit legs on `account_id` whose\ntransaction metadata `metadata_key` equals `batch_ref`; the ledger's\nown payout booking (a credit on the same account) is not a capture.\n**Chargebacks and refunds** are the credit legs on `account_id` of\n*linked reversals* (`POST /v1/transactions/{id}/reverse`, full or\npartial, which keeps `reverses` to the original deposit) whose\nmetadata `metadata_key` equals `batch_ref`: reverse the capture with\nthat metadata. The ledger cannot tell a chargeback from a refund, so\nthey are checked together against `chargebacks + refunds`; the split\nis the PSP's declaration. Reversals mirrored before recon migration\n`0013` carry no link and never count. The payout row is only\nreferenced, so matching still pairs it with the ledger's payout\nposting (the default matcher pairs `external_ref` with the posting's\nidempotency key, so the payout posting must use `batch_ref` as its\nkey, or a `group_by=metadata` rule must be used)."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Callbacks",
+          "item": [
+            {
+              "name": "List a source's callbacks",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/callbacks",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "callbacks"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Filter by callback status; omit for all."
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's next_cursor. A malformed"
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "List a source's callbacks"
+              }
+            },
+            {
+              "name": "Deliver a provider callback",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"event_id\": \"evt_9f3a1c\",\n  \"event_type\": \"transaction\",\n  \"occurred_at\": \"2026-10-19T09:30:00Z\",\n  \"data\": {\n    \"external_ref\": \"PSP-TX-20261019-0042\",\n    \"amount\": \"12500\",\n    \"asset\": \"USD\",\n    \"direction\": \"CREDIT\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/callbacks",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "callbacks"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Stores one provider event in the source's inbox (ADR-012). Providers\ndeliver at least once, so the same event arrives again on timeouts\nand retries; each `event_id` is kept once per source.\n\n- First delivery: `201` and the stored callback.\n- Redelivery of a known `event_id` with the **same canonical\n  payload**: `200` and the stored callback with `duplicates`\n  incremented. Nothing is processed twice.\n- Same `event_id` with a **different payload**: `409` (`conflict`).\n  Either the provider reused an id or the payload was tampered with;\n  the stored event is not changed.\n\nThe canonical payload is `event_type`, `occurred_at` (in UTC) and\n`data` re-encoded with sorted keys and numbers kept verbatim. Key\norder, whitespace and the time zone offset do not matter, so a\nprovider retry that only reformats the body is still a duplicate.\n\nAn event with `event_type` = `transaction` becomes a statement row of\nthe source (`external_id`, under its own import `callback:<event_id>`)\nand the next run matches it like any CSV row (`status` `processed`).\nEvery other type is stored as evidence with no side effect (`status`\n`ignored`). `data` of a `transaction` event needs `external_ref`,\n`amount` (minor units, string) and `asset`, plus an optional\n`direction`; anything else in `data` is kept as sent.\n\nThis route is behind the platform's JWT (`reconciliation:write`), for\na tenant integration that relays the provider's events. A provider can\nalso deliver directly, signed with the source's callback secret, to\n`receivePublicCallback` (ADR-017); both routes share this inbox.\nStored events cannot be changed except for their duplicate counter.\n\nLedger idempotency: book the money with the bank's reference\n(`external_ref`) as `idempotency_key`, never this `event_id`. A provider\nresend with a new id becomes a second statement row, flagged `duplicate`\nby the next run. See docs/aviso-proveedor-a-ledger.md."
+              }
+            },
+            {
+              "name": "Create or rotate a source's callback signing secret",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/sources/:id/callback-secret",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "sources",
+                    ":id",
+                    "callback-secret"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Generates a new signing secret for the source's public callback route\n(ADR-017) and returns it **once**; it is stored only encrypted\n(AES-256-GCM) and never shown again. Needs `reconciliation:write`.\n\n- First call: `201`, `previous_expires_at` is `null`.\n- Later calls rotate: `200`. The old secret keeps verifying until\n  `previous_expires_at` (24 h), so the provider can switch keys\n  without losing events. A second rotation inside the window drops\n  the oldest secret at once.\n\nEach call is written to the audit log without the secret."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Imports",
+          "item": [
+            {
+              "name": "Import a CSV statement",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/imports",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "imports"
+                  ]
+                },
+                "description": "Uploads a CSV statement as `multipart/form-data` (max 10 MiB) with\ntwo fields:\n  - `source_id`: UUID of a registered source\n  - `file`: the CSV statement\n\nRequired CSV columns (any order, header row required):\n`external_ref`, `amount`, `asset`, `occurred_at` (RFC 3339).\n`amount` is a decimal string (e.g. `100.00`) converted to integer\nminor units with an exponent of 2. The import is processed\nsynchronously; the response carries the final status."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Runs",
+          "item": [
+            {
+              "name": "Launch a reconciliation run",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"source_id\": \"d4e5f6a7-b8c9-7d0e-2f3a-4b5c6d7e8f9a\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/runs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "runs"
+                  ]
+                },
+                "description": "Runs the matcher for one source over its unmatched statement rows\nagainst the ledger entries not yet matched. The run executes\nsynchronously. It uses the source's match rule `rule_version`, or the\nlatest version when omitted (or 0), or the built-in rule when the\nsource has none; the run records the version it used.\n\n`matched_count` and `unmatched_count` count **statement rows**, not\nmatches: a 1:N match of one row counts 1, an N:1 match of three rows\ncounts 3."
+              }
+            },
+            {
+              "name": "Get a run",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/runs/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "runs",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a run"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reports",
+          "item": [
+            {
+              "name": "Reconciliation report per source",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/reports",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "reports"
+                  ]
+                },
+                "description": "One summary row per source, plus tenant-wide totals."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Discrepancies",
+          "item": [
+            {
+              "name": "List discrepancies",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/discrepancies",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "discrepancies"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Filter by triage status; omit for all."
+                    },
+                    {
+                      "key": "severity",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Filter by severity; omit for all."
+                    },
+                    {
+                      "key": "owner",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Filter by assignee handle (exact match); omit for all."
+                    },
+                    {
+                      "key": "overdue",
+                      "value": "",
+                      "disabled": true,
+                      "description": "`true` keeps only unresolved discrepancies already past their"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page's next_cursor. A malformed"
+                    }
+                  ]
+                },
+                "description": "List discrepancies"
+              }
+            },
+            {
+              "name": "Triage a discrepancy",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"resolved\",\n  \"resolution_note\": \"duplicate wire, refunded by bank\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/reconciliation/discrepancies/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "reconciliation",
+                    "discrepancies",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Partial update: send only the fields to change. All of `status`,\n`severity`, `owner` and `resolution_note` are optional, but at least\none is required (an empty body is 400 `validation_failed`).\n\n- Changing `severity` moves `due_at` to `created_at` + the SLA of the\n  new severity, so raising the severity of an old discrepancy can make\n  it overdue at once.\n- Moving `status` to `resolved` stamps `resolved_at`; moving it back to\n  `open` or `investigating` clears it.\n- `owner` is a handle (user id, team slug, `api_key:<id>`), never an\n  email or a name: it is copied into the audit log, which holds no PII.\n  Send `\"\"` to unassign."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Subscriptions",
+          "item": [
+            {
+              "name": "List subscriptions",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-subscriptions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-subscriptions"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page. A malformed cursor yields"
+                    }
+                  ]
+                },
+                "description": "List subscriptions"
+              }
+            },
+            {
+              "name": "Create a subscription",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"url\": \"https://api.acme.example/hooks/ledgercore\",\n  \"event_types\": [\n    \"ledger.transaction.posted\",\n    \"ledger.transaction.reversed\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-subscriptions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-subscriptions"
+                  ]
+                },
+                "description": "Create a subscription"
+              }
+            },
+            {
+              "name": "Get a subscription",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-subscriptions/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-subscriptions",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Get a subscription"
+              }
+            },
+            {
+              "name": "Update a subscription",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"active\": false\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-subscriptions/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-subscriptions",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Partial update. There is no delete endpoint: deactivate a\nsubscription with `active: false` (it stops receiving events and can\nbe re-activated later)."
+              }
+            },
+            {
+              "name": "Rotate the signing secret (24h grace period)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-subscriptions/:id/rotate-secret",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-subscriptions",
+                    ":id",
+                    "rotate-secret"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Generates a new secret and returns it exactly once. The previous\nsecret keeps VERIFYING until `previous_secret_expires_at` (24 hours):\nduring that window every delivery is signed with both secrets (two\n`v1` entries in `X-LedgerCore-Signature`), so the receiver can switch\nwhenever it wants inside the window without losing events. After the\ndeadline the old secret is purged and never used again."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deliveries",
+          "item": [
+            {
+              "name": "List deliveries",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-deliveries",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-deliveries"
+                  ],
+                  "query": [
+                    {
+                      "key": "subscription_id",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Page size; values above 200 are clamped to 200."
+                    },
+                    {
+                      "key": "cursor",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Opaque keyset cursor from a previous page. A malformed cursor yields"
+                    }
+                  ]
+                },
+                "description": "List deliveries"
+              }
+            },
+            {
+              "name": "Retry a failed or dead delivery",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/webhook-deliveries/:id/retry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "webhook-deliveries",
+                    ":id",
+                    "retry"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Re-enqueues the delivery as `pending` for immediate retry."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

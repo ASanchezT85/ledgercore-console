@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { BrandLockup } from "@/components/logo";
+import { SCALAR_SRI } from "./scalar-sri";
 
 declare global {
   interface Window {
@@ -55,6 +56,8 @@ export function ApiReferenceView() {
         // Self-contained: no font fetch from Scalar's CDN, no request proxy.
         withDefaultFonts: false,
         proxyUrl: "",
+        // No usage telemetry leaves the page.
+        telemetry: false,
         forceDarkModeState: "dark",
         hideDarkModeToggle: true,
         hideTestRequestButton: false,
@@ -70,6 +73,8 @@ export function ApiReferenceView() {
     const script = document.createElement("script");
     script.src = "/vendor/scalar.standalone.js";
     script.async = true;
+    script.integrity = SCALAR_SRI;
+    script.crossOrigin = "anonymous";
     script.onload = init;
     script.onerror = () => setError(true);
     document.body.appendChild(script);

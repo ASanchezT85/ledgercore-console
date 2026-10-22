@@ -69,7 +69,7 @@ export const GUIDE: GuideContent = {
             kind: "list",
             items: [
               "Misma key + mismo contenido → 200 con la respuesta original y X-Idempotent-Replay: true. Nunca se duplica dinero.",
-              "Misma key con payload distinto → hoy la reutilización devuelve la respuesta original (replay); el código 409 idempotency_conflict está reservado en el catálogo para rechazar este caso. No reutilices una key con otro contenido.",
+              "Misma key con payload distinto → 409 idempotency_conflict: la key ya quedó atada a la primera petición. Usa una key nueva para una operación nueva.",
               "Tras un timeout o un 5xx: reintenta con LA MISMA key (backoff exponencial). Con 429 rate_limited el retry con la misma key también es seguro.",
               "Ante un 4xx de validación (400/422) no reintentes sin corregir: el contenido es el problema, no la red.",
             ],
@@ -119,7 +119,7 @@ export const GUIDE: GuideContent = {
             kind: "list",
             items: [
               "Same key + same content → 200 with the original response and X-Idempotent-Replay: true. Money is never duplicated.",
-              "Same key with a different payload → today reuse returns the original response (replay); the 409 idempotency_conflict code is reserved in the catalog to reject this case. Do not reuse a key with different content.",
+              "Same key with a different payload → 409 idempotency_conflict: the key is already bound to the first request. Use a new key for a new operation.",
               "After a timeout or a 5xx: retry with the SAME key (exponential backoff). On 429 rate_limited the same-key retry is also safe.",
               "On a validation 4xx (400/422) do not retry without fixing it: the content is the problem, not the network.",
             ],
