@@ -2237,6 +2237,10 @@ paths:
         postings must balance (422 `unbalanced_transaction`). An unknown
         `event_type` or `rule_version` is 404. Requires `ledger:write`.
 
+        `hold_id` (optional) settles an active hold in the same booking: the
+        transaction captures it, as on `POST /v1/transactions`. A hold past its
+        `expires_at` is 409 `hold_expired`.
+
         `idempotency_key` is required and may be sent in the body or via the
         `Idempotency-Key` request header (the body field wins). The same key
         and payload replays the event (200 + `X-Idempotent-Replay: true`).
@@ -2292,7 +2296,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: The idempotency key was already used with another payload, or by a plain transaction (`idempotency_conflict`).
+          description: The idempotency key was already used with another payload, or by a plain transaction (`idempotency_conflict`). A `hold_id` that is past its `expires_at` is `hold_expired`.
           content:
             application/json:
               schema:
@@ -4052,6 +4056,17 @@ components:
             type: string
             format: uuid
           description: Account role to account id. Must hold exactly the roles the rule uses.
+        hold_id:
+          type: string
+          format: uuid
+          description: |
+            An active hold the event settles. The rule's transaction is booked
+            with `hold_id` as on `POST /v1/transactions`: the hold is captured
+            and linked in the same database transaction, so the posting may
+            spend the funds it reserves. The rule must lower the held account
+            in the held asset. The hold is part of the idempotency payload: a
+            replay must repeat it, and the same key with another hold is 409
+            `idempotency_conflict`. A hold past `expires_at` is 409 `hold_expired`.
 
     PostingEvent:
       type: object
