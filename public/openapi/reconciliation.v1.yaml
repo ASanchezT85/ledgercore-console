@@ -1639,7 +1639,7 @@ components:
 
         The table is fixed for all tenants. The default severity depends on the
         kind: `balance_mismatch` and `provider_backing_break` are `critical`; `amount_mismatch`, `duplicate`
-        and `settlement_mismatch` are `high`; the others `medium`.
+        and `settlement_mismatch` and `movement_transit_residual` are `high`; the others `medium`.
 
     Discrepancy:
       type: object
@@ -1657,7 +1657,7 @@ components:
           description: Run that found it; null for custody and settlement exceptions raised outside a run.
         kind:
           type: string
-          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch, provider_backing_break]
+          enum: [missing_internal, missing_external, amount_mismatch, duplicate, balance_mismatch, settlement_mismatch, provider_backing_break, movement_transit_residual]
           description: |
             `duplicate` flags statement rows repeating a key that a rule allows only once.
             `balance_mismatch` is a custody snapshot whose reported balance differs from the ledger's.
@@ -1667,6 +1667,12 @@ components:
             customer custody. It belongs to the tenant's system source `ledger:provider-backing`, has no run,
             and `details` carries `ledger_id`, `break_kind`, `provider`, `asset` and `amount`. One unresolved
             exception exists per break.
+            `movement_transit_residual` is a staged movement that closed with transit left (ADR-019 section 4,
+            `ledger.movement.closed` with a non-empty `transit_residual`). It belongs to the tenant's system source
+            `ledger:movements`, has no run, and `details` carries `movement_id`, `ledger_id`, `movement_type`,
+            `reference`, `outcome` and `transit_residual` (a list of `{asset, amount}`). It resolves itself when
+            the ledger reports `ledger.movement.transit_cleared` (`details.cleared_by` is the clearing
+            transaction). One exception exists per movement.
         details:
           type: object
           description: |
