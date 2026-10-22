@@ -343,6 +343,61 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/movement-policy:
+    put:
+      operationId: setLedgerMovementPolicy
+      tags: [Ledgers, Movements]
+      summary: Flag movements that stay open too long
+      description: |
+        Sets the ledger's `stale_movement_after` ([ADR-019](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-019-staged-movements.md)
+        §8): how long a movement may stay open (not terminal) before it is
+        stale. A duration in Go syntax (`"720h"` for 30 days, `"90m"`), whole
+        seconds, from `1m` to `87600h`; `null` turns the check off, which is
+        the default. The field is required.
+
+        A sweeper in ledger-core (every `LEDGERCORE_STALE_SWEEP_INTERVAL`,
+        default 5 minutes) finds the open movements whose `opened_at` is
+        older than the setting, sets their `stale_at` and emits
+        `ledger.movement.stale` **once per movement**; reconciliation turns it
+        into a `movement_stale` exception that the movement's close resolves.
+        Lowering the setting reports the movements that now cross it on the
+        next sweep; a movement already reported is never reported again.
+        `GET /v1/movements?status=open&opened_before=…` lists the open ones of
+        any age.
+
+        Each change leaves an `audit_log` row (`ledger.movement_policy.update`)
+        with the previous and new value in seconds (`null` when off); setting
+        the value the ledger already has is a no-op. Requires the
+        `ledger:write` scope.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MovementPolicy'
+            examples:
+              thirtyDays:
+                value:
+                  stale_movement_after: 720h
+              off:
+                value:
+                  stale_movement_after: null
+      responses:
+        '200':
+          description: The ledger with its setting.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ledger'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/ledgers/{id}/provider-exposure:
     get:
       operationId: getLedgerProviderExposure
@@ -4375,9 +4430,27 @@ components:
           oneOf:
             - $ref: '#/components/schemas/LossAllocation'
             - type: 'null'
+        stale_movement_after:
+          type: [string, 'null']
+          description: |
+            How long a movement may stay open before it is reported stale
+            (`PUT /v1/ledgers/{id}/movement-policy`), as a duration without
+            trailing zero units (`720h`, `1h30m`). `null` while the check is
+            off, the default.
+          examples: [720h]
         created_at:
           type: string
           format: date-time
+
+    MovementPolicy:
+      type: object
+      required: [stale_movement_after]
+      additionalProperties: false
+      properties:
+        stale_movement_after:
+          type: [string, 'null']
+          description: A duration in Go syntax (`720h`, `90m`), whole seconds from `1m` to `87600h`, or `null` to turn the check off.
+          examples: [720h]
 
     CustodyPolicy:
       type: object
@@ -5957,7 +6030,7 @@ components:
 
     Movement:
       type: object
-      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, transit_residual, metadata]
+      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, transit_residual, metadata, stale_at]
       properties:
         id:
           type: string
@@ -5999,6 +6072,13 @@ components:
             open.
         metadata:
           $ref: '#/components/schemas/Metadata'
+        stale_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When the stale sweeper found the movement open past its ledger's
+            `stale_movement_after` and emitted `ledger.movement.stale` (ADR-019
+            §8). Set once; kept after the movement closes. `null` otherwise.
 
     LedgerTransfer:
       type: object
