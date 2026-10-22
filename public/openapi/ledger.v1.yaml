@@ -49,6 +49,12 @@ tags:
     description: |
       A value transfer between two ledgers of one tenant, written as one
       transaction per ledger whose due-to / due-from accounts eliminate.
+  - name: Movements
+    description: |
+      Staged movements (ADR-019): one operation of the tenant (a remittance, a
+      payroll run...) from open to a terminal status. This version opens and
+      reads them; writes tagged with a movement, the status machine and the
+      close come in later steps.
   - name: Reports
     description: Accounting reports.
 
@@ -162,7 +168,7 @@ paths:
       summary: Set the ledger's metadata allowlist
       description: |
         Replaces the metadata keys the ledger accepts: `transaction_keys` on
-        new transactions and holds, `account_keys` on new accounts. A list
+        new transactions, holds and movements, `account_keys` on new accounts. A list
         that is `null` or left out removes that allowlist (any key accepted);
         an empty list accepts no key. A key outside the list is rejected with
         422 `metadata_key_not_allowed`. Requires the `ledger:write` scope.
@@ -467,6 +473,7 @@ paths:
                     status: active
                     allow_negative: false
                     fund_class: customer
+                    transit: false
                     postable: true
                     metadata:
                       customer_id: cust_42
@@ -540,6 +547,7 @@ paths:
                         status: active
                         allow_negative: false
                         fund_class: customer
+                        transit: false
                         postable: true
                         metadata: {}
                         created_at: '2026-07-24T12:01:00Z'
@@ -571,6 +579,7 @@ paths:
                     status: active
                     allow_negative: false
                     fund_class: customer
+                    transit: false
                     postable: true
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
@@ -649,6 +658,7 @@ paths:
                     status: frozen
                     allow_negative: false
                     fund_class: customer
+                    transit: false
                     postable: true
                     metadata: {}
                     created_at: '2026-07-24T12:01:00Z'
@@ -2507,6 +2517,187 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/movements:
+    post:
+      operationId: openMovement
+      tags: [Movements]
+      summary: Open a movement
+      description: |
+        Opens a staged movement (ADR-019): one operation of the tenant in one
+        ledger, such as a remittance or a payroll run. It starts in status
+        `open`; later steps of this feature move it forward and close it. The
+        ledger gives no meaning to `type` (the tenant's own label) or to
+        `reference` (the tenant's id for the operation, not unique).
+
+        `idempotency_key` is required: the same key and request replays the
+        movement already opened (200 + `X-Idempotent-Replay: true`); the same
+        key with another ledger, type, reference, quote or metadata is 409
+        `idempotency_conflict`. The key may be sent in the body or via the
+        `Idempotency-Key` request header. `metadata` follows the rules and the
+        `transaction_keys` allowlist of a transaction's. Requires
+        `ledger:write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenMovementRequest'
+            examples:
+              remittance:
+                summary: A remittance, keyed by the order
+                value:
+                  ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                  idempotency_key: order-8841:open
+                  type: remittance
+                  reference: order-8841
+                  metadata:
+                    corridor: US-MX
+      responses:
+        '201':
+          description: Movement opened.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+              examples:
+                remittance:
+                  value:
+                    id: 0199f3a2-6c1e-7b40-9d52-4a8e1c7f3b60
+                    ledger_id: 1f0a6a2e-9c1b-7f2e-8a11-3c5d7e9f0b21
+                    type: remittance
+                    reference: order-8841
+                    status: open
+                    fx_quote_id: null
+                    opened_at: '2026-10-21T15:04:05Z'
+                    last_stage_at: '2026-10-21T15:04:05Z'
+                    closed_at: null
+                    metadata:
+                      corridor: US-MX
+        '200':
+          description: Idempotent replay — the movement already existed for this idempotency key and request.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: The ledger, or the `fx_quote_id`, does not exist in the tenant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The idempotency key was already used with another request (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                idempotencyConflict:
+                  value:
+                    error:
+                      code: idempotency_conflict
+                      message: 'idempotency key reused with a different request payload'
+                      request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+        '422':
+          description: |
+            The metadata is rejected (`metadata_not_scalar`, `metadata_too_large`,
+            `metadata_pii_detected`, `metadata_key_not_allowed`; see `Metadata`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      operationId: listMovements
+      tags: [Movements]
+      summary: List movements
+      description: |
+        The tenant's movements, newest first by `opened_at`. Every filter is
+        optional and they combine. To find the operations that have been going
+        for too long: `status=open&opened_before=<now minus the age>`.
+        Requires `ledger:read`.
+      parameters:
+        - name: ledger_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          description: |
+            A status, or `open` for every movement that has not ended
+            (`open`, `authorized`, `captured` and `dispatched`): a movement
+            already authorized is as open as one just opened. `completed`,
+            `failed` and `cancelled` match themselves.
+          schema:
+            $ref: '#/components/schemas/MovementStatus'
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: reference
+          in: query
+          description: Exact match on the tenant's reference.
+          schema:
+            type: string
+        - name: opened_before
+          in: query
+          description: Only movements opened strictly before this instant (RFC 3339).
+          schema:
+            type: string
+            format: date-time
+        - name: opened_after
+          in: query
+          description: Only movements opened strictly after this instant (RFC 3339).
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of movements, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Movement'
+                  next_cursor:
+                    type: [string, 'null']
+                    description: Opaque cursor for the next page; null when exhausted.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/movements/{id}:
+    get:
+      operationId: getMovement
+      tags: [Movements]
+      summary: Get a movement
+      description: Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The movement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movement'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /v1/trial-balance:
     get:
       operationId: getTrialBalance
@@ -2652,6 +2843,7 @@ paths:
                       status: active
                       allow_negative: false
                       fund_class: customer
+                      transit: false
                       postable: true
                       metadata: {}
                       created_at: '2026-05-01T09:00:00Z'
@@ -3101,7 +3293,7 @@ components:
           type: [array, 'null']
           maxItems: 64
           items: { type: string, minLength: 1, maxLength: 64 }
-          description: Keys accepted on new transactions and holds.
+          description: Keys accepted on new transactions, holds and movements.
         account_keys:
           type: [array, 'null']
           maxItems: 64
@@ -3243,6 +3435,15 @@ components:
             existed before this field are `true`.
         fund_class:
           $ref: '#/components/schemas/FundClass'
+        transit:
+          type: boolean
+          default: false
+          description: |
+            Marks a transit account (ADR-019): the account whose postings make
+            up the transit of the movements that tag them. Set here and never
+            changed afterwards. In this version nothing is judged by it yet; the
+            writes tagged with a movement, and the rules about transit accounts,
+            come in a later step.
         metadata:
           $ref: '#/components/schemas/Metadata'
 
@@ -3262,7 +3463,7 @@ components:
 
     Account:
       type: object
-      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, postable, created_at]
+      required: [id, ledger_id, name, type, normal_balance, status, allow_negative, fund_class, transit, postable, created_at]
       properties:
         id:
           type: string
@@ -3283,6 +3484,9 @@ components:
           description: Overdraft policy; see `AccountCreate.allow_negative`.
         fund_class:
           $ref: '#/components/schemas/FundClass'
+        transit:
+          type: boolean
+          description: Whether this is a transit account; see `AccountCreate.transit`.
         postable:
           type: boolean
           readOnly: true
@@ -4182,6 +4386,79 @@ components:
           format: uuid
         transaction:
           $ref: '#/components/schemas/Transaction'
+
+    MovementStatus:
+      type: string
+      enum: [open, authorized, captured, dispatched, completed, failed, cancelled]
+      description: |
+        Where a movement stands. It starts at `open` and only moves forward
+        (`authorized`, `captured`, `dispatched`; a stage may be skipped) to one
+        of the terminal statuses `completed`, `failed` or `cancelled`. In this
+        version every movement is `open`.
+
+    OpenMovementRequest:
+      type: object
+      required: [ledger_id, type]
+      additionalProperties: false
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger of the movement. A movement never spans ledgers.
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Required, here or in the `Idempotency-Key` header. A convention that works is `<reference>:open`.
+        type:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9._-]{0,63}$'
+          description: The tenant's own label for the kind of operation (`remittance`, `payroll_run`). Opaque to the ledger.
+        reference:
+          type: string
+          maxLength: 255
+          description: The tenant's id for the operation, such as an order id. Indexed, not unique.
+        fx_quote_id:
+          type: string
+          format: uuid
+          description: The quote the operation was priced with (an `FXQuote` of the tenant), if any.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+
+    Movement:
+      type: object
+      required: [id, ledger_id, type, status, fx_quote_id, opened_at, last_stage_at, closed_at, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        reference:
+          type: string
+          description: Absent when the movement was opened without one.
+        status:
+          $ref: '#/components/schemas/MovementStatus'
+        fx_quote_id:
+          type: [string, 'null']
+          format: uuid
+        opened_at:
+          type: string
+          format: date-time
+          description: When the movement was opened. Its age is the time since.
+        last_stage_at:
+          type: string
+          format: date-time
+          description: When it last advanced; `opened_at` until it does.
+        closed_at:
+          type: [string, 'null']
+          format: date-time
+          description: Set when the movement reaches a terminal status.
+        metadata:
+          $ref: '#/components/schemas/Metadata'
 
     LedgerTransfer:
       type: object
