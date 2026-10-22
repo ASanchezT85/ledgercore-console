@@ -2399,7 +2399,188 @@
                     "posting-groups"
                   ]
                 },
-                "description": "Writes two or more posted, single-asset transactions atomically: all\nmembers commit or none does. Each member goes through the normal\nposting path (balance per asset, periods, metadata allowlist,\noverdraft, account status, hash chain) and carries `posting_group_id`.\nA member that mixes assets is 400 `validation_failed`. Requires\n`ledger:write`.\n\nWith `fx`, the group cites an FX quote and a conversion account.\nAcross the members, that account's net movement in the base asset and\nin the quote asset must be non-zero, of opposite sign, and the quote\namount must equal the base amount times the rate within one minor unit\n(422 `fx_rate_mismatch`). The quote must not be expired\n(422 `fx_quote_expired`). An invalid quote, rate or group is 400\n`validation_failed`.\n\n`idempotency_key` covers the whole group: the same key and payload\nreplays it (200 + `X-Idempotent-Replay: true`); the same key with\nanother payload is 409 `idempotency_conflict`. The key may be sent in\nthe body or via the `Idempotency-Key` request header. Members get the\nderived keys `<key>/1`, `<key>/2`, …."
+                "description": "Writes two or more posted, single-asset transactions atomically: all\nmembers commit or none does. A group takes up to 5,000 members (a\npayroll-size batch, body up to 4 MiB); the whole group is one database\ntransaction, so it costs about 10 ms per member (about a minute for\n5,000) and holds the balance rows it touches until it commits. See\n`docs/batches.md`. To have a batch approved before it books, send it\nto `POST /v1/posting-group-requests` instead. Each member goes through the normal\nposting path (balance per asset, periods, metadata allowlist,\noverdraft, account status, hash chain) and carries `posting_group_id`.\nA member that mixes assets is 400 `validation_failed`. Requires\n`ledger:write`.\n\nWith `fx`, the group cites an FX quote and a conversion account.\nAcross the members, that account's net movement in the base asset and\nin the quote asset must be non-zero, of opposite sign, and the quote\namount must equal the base amount times the rate within one minor unit\n(422 `fx_rate_mismatch`). The quote must not be expired\n(422 `fx_quote_expired`). An invalid quote, rate or group is 400\n`validation_failed`.\n\n`idempotency_key` covers the whole group: the same key and payload\nreplays it (200 + `X-Idempotent-Replay: true`); the same key with\nanother payload is 409 `idempotency_conflict`. The key may be sent in\nthe body or via the `Idempotency-Key` request header. Members get the\nderived keys `<key>/1`, `<key>/2`, …."
+              }
+            },
+            {
+              "name": "Propose a posting group for approval (maker)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "{{idempotencyKey}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests"
+                  ]
+                },
+                "description": "Maker-checker for a large batch (6.32), the counterpart of adjustment\nrequests. The body is the one of `POST /v1/posting-groups`; instead of\nwriting the group it is stored as a request, `pending`, identified by\nits `request_hash` (the group fingerprint, hex). Nothing reaches the\nbook. Two identities other than the maker must approve the hash\n(`approve`), then one `execute` writes the whole group, all members or\nnone, as `POST /v1/posting-groups` would.\n\nThe group is judged at creation as to its shape (2 to 5,000 members,\none asset each, balanced), its metadata and its accounts: they must\nexist in the ledger and take postings now. Balances, periods and the\nrest are judged at execution. `idempotency_key` is also the key of the\ngroup; a repeat with the same payload replays (200 +\n`X-Idempotent-Replay: true`), another payload is 409\n`idempotency_conflict`. Audited. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Get a posting group request",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The request with its status, `request_hash` and approvals. The batch is\nnot echoed; once `executed`, `group_id` names the group, which lists\nevery member. Requires `ledger:read`."
+              }
+            },
+            {
+              "name": "Approve a posting group request (checker)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests/:id/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests",
+                    ":id",
+                    "approve"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "As `approveAdjustmentRequest`: records the calling identity's approval\nof the `request_hash` it reviewed. The maker cannot approve (403\n`self_approval`), an identity approves once (409 `conflict`), and the\nhash must be the request's (409 `request_hash_mismatch`). The second\napproval moves the request to `approved`. Audited. Requires\n`ledger:write`."
+              }
+            },
+            {
+              "name": "Reject a pending posting group request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests/:id/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests",
+                    ":id",
+                    "reject"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Closes a `pending` request without executing it. Audited. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Cancel a posting group request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests/:id/cancel",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests",
+                    ":id",
+                    "cancel"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Withdraws a `pending` or `approved` request. Audited. Requires `ledger:write`."
+              }
+            },
+            {
+              "name": "Execute an approved posting group request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/posting-group-requests/:id/execute",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "posting-group-requests",
+                    ":id",
+                    "execute"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Writes the group of an `approved` request through the normal group path,\nin one database transaction with the request's move to `executed`: all\nmembers or none. Exactly once: a repeated or concurrent execution\nreturns the group already written (200 + `X-Idempotent-Replay: true`).\nA request that is not `approved` is 409 `conflict`. Balances, periods,\noverdraft and account status are judged now, so an execution can still\nbe refused (422), leaving the request `approved`. Takes as long as\n`POST /v1/posting-groups` for the same size. Requires `ledger:write`."
               }
             },
             {

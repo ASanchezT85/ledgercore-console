@@ -3313,7 +3313,12 @@ paths:
       summary: Create a posting group
       description: |
         Writes two or more posted, single-asset transactions atomically: all
-        members commit or none does. Each member goes through the normal
+        members commit or none does. A group takes up to 5,000 members (a
+        payroll-size batch, body up to 4 MiB); the whole group is one database
+        transaction, so it costs about 10 ms per member (about a minute for
+        5,000) and holds the balance rows it touches until it commits. See
+        `docs/batches.md`. To have a batch approved before it books, send it
+        to `POST /v1/posting-group-requests` instead. Each member goes through the normal
         posting path (balance per asset, periods, metadata allowlist,
         overdraft, account status, hash chain) and carries `posting_group_id`.
         A member that mixes assets is 400 `validation_failed`. Requires
@@ -3445,6 +3450,265 @@ paths:
                       code: fx_rate_mismatch
                       message: 'domain: conversion legs do not match the fx quote'
                       request_id: 9f1b2c3d4e5f60718293a4b5c6d7e8f9
+
+  /v1/posting-group-requests:
+    post:
+      operationId: createPostingGroupRequest
+      tags: [PostingGroups]
+      summary: Propose a posting group for approval (maker)
+      description: |
+        Maker-checker for a large batch (6.32), the counterpart of adjustment
+        requests. The body is the one of `POST /v1/posting-groups`; instead of
+        writing the group it is stored as a request, `pending`, identified by
+        its `request_hash` (the group fingerprint, hex). Nothing reaches the
+        book. Two identities other than the maker must approve the hash
+        (`approve`), then one `execute` writes the whole group, all members or
+        none, as `POST /v1/posting-groups` would.
+
+        The group is judged at creation as to its shape (2 to 5,000 members,
+        one asset each, balanced), its metadata and its accounts: they must
+        exist in the ledger and take postings now. Balances, periods and the
+        rest are judged at execution. `idempotency_key` is also the key of the
+        group; a repeat with the same payload replays (200 +
+        `X-Idempotent-Replay: true`), another payload is 409
+        `idempotency_conflict`. Audited. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Alternative to the `idempotency_key` body field (the body field wins).
+          schema:
+            type: string
+            maxLength: 240
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostingGroupRequest'
+      responses:
+        '201':
+          description: Request created, pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '200':
+          description: Idempotent replay.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The idempotency key was already used with another payload (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: An account is frozen, closed or a parent (`account_inactive`, `account_not_postable`) or the metadata is rejected (`metadata_*`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/posting-group-requests/{id}:
+    get:
+      operationId: getPostingGroupRequest
+      tags: [PostingGroups]
+      summary: Get a posting group request
+      description: |
+        The request with its status, `request_hash` and approvals. The batch is
+        not echoed; once `executed`, `group_id` names the group, which lists
+        every member. Requires `ledger:read`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/posting-group-requests/{id}/approve:
+    post:
+      operationId: approvePostingGroupRequest
+      tags: [PostingGroups]
+      summary: Approve a posting group request (checker)
+      description: |
+        As `approveAdjustmentRequest`: records the calling identity's approval
+        of the `request_hash` it reviewed. The maker cannot approve (403
+        `self_approval`), an identity approves once (409 `conflict`), and the
+        hash must be the request's (409 `request_hash_mismatch`). The second
+        approval moves the request to `approved`. Audited. Requires
+        `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_hash]
+              additionalProperties: false
+              properties:
+                request_hash:
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+                  description: The `request_hash` the approver reviewed, hex-encoded.
+      responses:
+        '200':
+          description: The request, with the new approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: The maker cannot approve their own request (`self_approval`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The hash is not the request's (`request_hash_mismatch`), this identity already approved, or the request is not pending (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/posting-group-requests/{id}/reject:
+    post:
+      operationId: rejectPostingGroupRequest
+      tags: [PostingGroups]
+      summary: Reject a pending posting group request
+      description: Closes a `pending` request without executing it. Audited. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The request, rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The request is not pending (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/posting-group-requests/{id}/cancel:
+    post:
+      operationId: cancelPostingGroupRequest
+      tags: [PostingGroups]
+      summary: Cancel a posting group request
+      description: Withdraws a `pending` or `approved` request. Audited. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The request, cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroupRequest'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The request is already executed or rejected (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/posting-group-requests/{id}/execute:
+    post:
+      operationId: executePostingGroupRequest
+      tags: [PostingGroups]
+      summary: Execute an approved posting group request
+      description: |
+        Writes the group of an `approved` request through the normal group path,
+        in one database transaction with the request's move to `executed`: all
+        members or none. Exactly once: a repeated or concurrent execution
+        returns the group already written (200 + `X-Idempotent-Replay: true`).
+        A request that is not `approved` is 409 `conflict`. Balances, periods,
+        overdraft and account status are judged now, so an execution can still
+        be refused (422), leaving the request `approved`. Takes as long as
+        `POST /v1/posting-groups` for the same size. Requires `ledger:write`.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '201':
+          description: Group written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroup'
+        '200':
+          description: Already executed; the group written then.
+          headers:
+            X-Idempotent-Replay:
+              description: Always "true" on a replayed response.
+              schema:
+                type: string
+                const: 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostingGroup'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/StepUpRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The request is not approved (`conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: A member is refused as a transaction would be (`insufficient_funds`, `account_inactive`, `period_closed`, ...); nothing was written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/posting-groups/{id}:
     get:
@@ -6728,9 +6992,47 @@ components:
         transactions:
           type: array
           minItems: 2
-          maxItems: 100
+          maxItems: 5000
           items:
             $ref: '#/components/schemas/GroupTransaction'
+
+    PostingGroupRequest:
+      type: object
+      required: [id, ledger_id, idempotency_key, status, request_hash, maker, members, approvals, group_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ledger_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+        status:
+          $ref: '#/components/schemas/AdjustmentStatus'
+        request_hash:
+          type: string
+          description: SHA-256 fingerprint of the proposed group, hex-encoded. Approvers send it back to approve.
+        maker:
+          type: string
+          description: Identity that created the request (e.g. `api_key:<id>`).
+        members:
+          type: integer
+          description: Number of transactions in the proposed group.
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdjustmentApproval'
+        group_id:
+          type: [string, 'null']
+          format: uuid
+          description: The posting group written by the execution, once `executed`.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     PostingGroup:
       type: object
