@@ -554,6 +554,51 @@
               }
             },
             {
+              "name": "Holders with money and no movement for N days",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/v1/ledgers/:id/inactive-holders",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "ledgers",
+                    ":id",
+                    "inactive-holders"
+                  ],
+                  "query": [
+                    {
+                      "key": "days",
+                      "value": "",
+                      "disabled": true,
+                      "description": ""
+                    },
+                    {
+                      "key": "limit",
+                      "value": "",
+                      "disabled": true,
+                      "description": "At most this many holders (default 100, maximum 500). There is no cursor; sweep the oldest and ask again."
+                    }
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "The candidates for `POST /v1/accounts/{id}/close-holder`. A holder is\nlisted when its liability leaves (`liabilities:holder:<h>:<leaf>`, closed\nones, the dormant leaf and provider claims left out) hold money in some\nasset and none of their balances has changed for at least `days` days\n(a posting or a hold counts as movement). Oldest activity first; a\nholder already swept is not listed. Requires the `ledger:read` scope."
+              }
+            },
+            {
               "name": "What each provider holds, and whether customer funds are backed",
               "request": {
                 "method": "GET",
@@ -1281,6 +1326,50 @@
                   ]
                 },
                 "description": "Freezes the account **and every account under its path** in one database\ntransaction, so no movement commits between the first leaf and the last\nand none commits on any leaf once the call returns. It works on a parent\n(`postable: false`), which `PATCH /v1/accounts/{id}` refuses: call it on\na holder's parent account to freeze the holder's whole subtree (ADR-020).\nRequires the `ledger:write` scope.\n\n`mode` says which postings a frozen account still refuses, read against\nthe **direction of each posting**: `all` (the default) refuses every\nposting; `debits` refuses DEBIT postings and accepts CREDIT ones (on a\nwallet: the money going out is blocked, a deposit still lands);\n`credits` is the opposite. Holds reserve money a later debit spends on a\ncredit-normal account, so they follow `debits` there. A refused posting\nfails with 422 `account_inactive`. `frozen_override` still relaxes a\nfreeze of any mode.\n\n`reason` is required (1 to 1024 characters) and `case_ref` is optional\n(up to 128 characters, e.g. a compliance case number). Both are stored\non every account that changes, written to the audit log\n(`account.freeze`, one row per account that changed) and sent in\n`ledger.account.updated`.\n\nClosed accounts are skipped. An account already frozen with the same\nmode, reason and case reference is left as it is, so a retry changes\nnothing and emits nothing; with another mode or reason, it replaces\nthem. The response lists every account of the subtree after the change."
+              }
+            },
+            {
+              "name": "Close a holder that still has money",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Inactive for 24 months, closure notice sent\",\n  \"case_ref\": \"DORM-2026-031\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/v1/accounts/:id/close-holder",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "accounts",
+                    ":id",
+                    "close-holder"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": ""
+                    }
+                  ]
+                },
+                "description": "Closes the holder whose **parent** account is `{id}`\n(`liabilities:holder:<h>`) even when its wallets hold money, which\n`PATCH /v1/accounts/{id}` refuses ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)\n§7). In one database transaction it moves what every liability leaf\nholds, asset by asset, to `liabilities:holder:<h>:dormant` (created when\nmissing), freezes that leaf with the `reason` and `case_ref`, and closes\nthe emptied leaves. The money never leaves the holder's own customer\nliabilities: `/coverage` and the provider backing check do not change,\nand under `by_provider` the holder's portion at each provider moves with\nit. To pay the holder out later, unfreeze the dormant leaf\n(`POST /v1/accounts/{id}/unfreeze`) and move the money with a normal\ntransaction. Requires the `ledger:write` scope.\n\nRefused whole, nothing moves: 409 `conflict` when a leaf has active\nholds or pending drafts, is in the red, or is a receivable with a\nbalance (the holder owes the operator); 422 `account_inactive` when a\nleaf is frozen (lift the freeze first, so a compliance freeze is never\nbypassed); 400 when `{id}` is not a holder's parent account.\n\nNaturally idempotent: a retry finds the leaves closed and answers 200\nwith `transaction_id: null` and nothing moved or closed. Audited as\n`holder.sweep` (plus one `account.update` per closed leaf and the\n`account.freeze` of the dormant leaf)."
               }
             },
             {
@@ -4440,6 +4529,12 @@
                       "value": "",
                       "disabled": true,
                       "description": ""
+                    },
+                    {
+                      "key": "after_sequence",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Replay mode: only deliveries of `subscription_id` with a greater"
                     },
                     {
                       "key": "limit",
