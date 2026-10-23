@@ -3,6 +3,8 @@
 
 import { NextResponse } from "next/server";
 
+import { clientHeaders } from "@/lib/client-headers";
+
 // Server-side proxy for the public sandbox signup: the browser posts here
 // (same origin) and this handler forwards to the identity service through
 // the gateway (NEXT_PUBLIC_API_URL is resolvable server-side inside the
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
   try {
     const upstream = await fetch(`${base}/v1/sandbox/signups`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...clientHeaders(request) },
       body: JSON.stringify(body),
       cache: "no-store",
     });

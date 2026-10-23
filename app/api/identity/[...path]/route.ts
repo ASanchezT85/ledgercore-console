@@ -3,6 +3,8 @@
 
 import { NextResponse } from "next/server";
 
+import { clientHeaders } from "@/lib/client-headers";
+
 // Same-origin proxy to identity's console endpoints (ADR-021).
 //
 // The browser never talks to identity about sessions: it calls
@@ -89,10 +91,8 @@ async function proxy(
     ?.split(/;\s*/)
     .find((c) => c.startsWith(`${SESSION_COOKIE}=`));
   if (cookie) headers.set("Cookie", cookie);
-  // The client address for the login lockout (identity reads it only when
-  // LEDGERCORE_TRUST_FORWARDED_FOR=true, i.e. behind the gateway).
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded) headers.set("X-Forwarded-For", forwarded);
+  // The client address for the login lockout.
+  for (const [k, v] of Object.entries(clientHeaders(request))) headers.set(k, v);
 
   const query = new URL(request.url).search;
   let upstream: Response;

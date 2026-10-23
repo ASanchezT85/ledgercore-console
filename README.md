@@ -57,6 +57,13 @@ una marca no secreta (`lc_signed_in`) para distinguir una sesión real del modo
 demo. Hasta que exista el SMTP (7.9) los enlaces de invitación y reset se leen
 del log de identity.
 
+Cuando la consola corre lejos de identity (Vercel), el gateway descarta su
+`X-Forwarded-For`; por eso también manda la IP del navegador en
+`X-Ledgercore-Client-Ip` junto al secreto `LEDGERCORE_CONSOLE_TOKEN`, el mismo
+valor configurado en identity y en el gateway (`lib/client-headers.ts`). Sin
+ese secreto, identity ve la IP del servidor de la consola y todos los usuarios
+comparten el bloqueo por intentos fallidos.
+
 ### Verificación en dos pasos (ADR-022)
 
 Es obligatoria: tras la contraseña, `/login/2fa` pregunta a identity
