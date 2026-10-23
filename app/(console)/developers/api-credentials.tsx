@@ -67,6 +67,7 @@ interface Issued {
 const SCOPES: { value: string; help: string }[] = [
   { value: "ledger:read", help: "Read ledgers, accounts, balances and transactions" },
   { value: "ledger:write", help: "Create accounts and post transactions" },
+  { value: "ledger:post", help: "Deposit-only: post transactions, movements and holds, nothing else" },
   { value: "reconciliation:read", help: "Read reconciliation runs and discrepancies" },
   { value: "reconciliation:write", help: "Import statements and resolve discrepancies" },
   { value: "webhooks:read", help: "Read webhook subscriptions and deliveries" },
