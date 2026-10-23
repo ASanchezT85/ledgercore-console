@@ -1,5 +1,5 @@
 // Copyright 2025-2026 Alexander J. Sánchez T.
-// SPDX-License-Identifier: FSL-1.1-ALv2
+// SPDX-License-Identifier: LicenseRef-Proprietary
 
 // Request signing of ADR-023 (scheme LC1-HMAC-SHA256) as a Postman
 // pre-request script. It is plain ES5 so it runs in Postman's sandbox

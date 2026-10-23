@@ -1,5 +1,5 @@
 // Copyright 2025-2026 Alexander J. Sánchez T.
-// SPDX-License-Identifier: FSL-1.1-ALv2
+// SPDX-License-Identifier: LicenseRef-Proprietary
 
 // Who the browser is, for the console's server-side calls to the backend.
 // X-Forwarded-For serves a console next to identity (compose); from any other

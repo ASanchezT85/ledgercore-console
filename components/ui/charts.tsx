@@ -1,5 +1,5 @@
 // Copyright 2025-2026 Alexander J. Sánchez T.
-// SPDX-License-Identifier: FSL-1.1-ALv2
+// SPDX-License-Identifier: LicenseRef-Proprietary
 
 // Brand charts (7.13): debit blue above the axis, credit amber below it.
 // Plain SVG on the theme tokens, so they follow light and dark mode.
