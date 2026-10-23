@@ -132,7 +132,7 @@ export function ApiReferenceView() {
           </Link>
         </div>
         <span className="font-mono text-xs text-ink-faint">
-          localhost:8080
+          ledgercore-api.sanchezavila.com
         </span>
       </header>
       {error && (

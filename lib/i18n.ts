@@ -29,7 +29,7 @@ const es = {
   meta: {
     title: "LedgerCore — el ledger de doble entrada para fintechs",
     description:
-      "Ledger de doble entrada de código fuente disponible: asientos balanceados, historia inmutable, dinero exacto e idempotencia, garantizados por PostgreSQL. Levántalo en local con docker compose.",
+      "Ledger de doble entrada como servicio: asientos balanceados, historia inmutable, dinero exacto e idempotencia, garantizados por PostgreSQL. Una API y una consola, con sandbox gratis.",
   },
   nav: {
     docs: "Docs",
@@ -41,14 +41,14 @@ const es = {
     homeAriaLabel: "LedgerCore — ir al inicio",
   },
   hero: {
-    badge: "Código fuente disponible · FSL-1.1 → Apache-2.0 · pre-1.0",
+    badge: "Ledger como servicio · API + consola · sandbox gratis",
     titlePre: "El ledger de doble entrada para fintechs que ",
     titleHighlight: "mueven dinero",
     titlePost: "",
     subtitle:
       "¿Dónde está el dinero, a quién pertenece y qué operación explica cada centavo? LedgerCore responde esa pregunta en todo momento, con garantías de base de datos y no con hojas de cálculo.",
-    ctaPrimary: "Pruébalo en 1 minuto",
-    ctaSecondary: "Ver el código en GitHub",
+    ctaPrimary: "Pruébalo gratis",
+    ctaSecondary: "Ver la documentación",
   },
   bench: {
     items: [
@@ -56,8 +56,7 @@ const es = {
       { value: "~1.170 tx/s", label: "repartiendo la carga entre ledgers (un ledger por worker)" },
       { value: "42 ms", label: "de p99 con 32 workers concurrentes, de punta a punta por HTTP" },
     ],
-    foot: "Medido en un laptop (Ryzen 7 7840HS, Docker Desktop, PostgreSQL con la configuración por defecto) contra la API pública. ",
-    link: "Metodología y cómo correrlo tú →",
+    foot: "Medido en un laptop (Ryzen 7 7840HS, Docker Desktop, PostgreSQL con la configuración por defecto) contra la API pública.",
   },
   scenarios: {
     answerLabel: "Qué hace LedgerCore:",
@@ -99,14 +98,19 @@ const es = {
       },
     ],
     footNote:
-      "¿Tu escenario no está acá? Abre un issue en GitHub: es exactamente lo que queremos escuchar.",
+      "¿Tu escenario no está acá? Crea un sandbox y pruébalo con tus propios flujos.",
   },
   how: {
     title: "Una API, asientos siempre balanceados",
     subtitle:
-      "Un depósito de USD 100 con fee de 3: un solo POST, tres postings, y el invariante débitos = créditos verificado por el motor.",
+      "Un depósito de USD 100 con una comisión de 3: una sola llamada, tres movimientos, y el motor verifica que débitos = créditos antes de postear.",
     responseNote:
-      "10000 = 9700 + 300. Montos en unidades menores (centavos), como enteros. Si no balancea, no se postea.",
+      "Los montos viajan en centavos, como enteros. Si débitos y créditos no suman lo mismo, el motor rechaza la transacción entera.",
+    account: "Cuenta",
+    debit: "Débito",
+    credit: "Crédito",
+    total: "Total",
+    accounts: ["Caja (banco)", "Wallet del cliente", "Comisiones"],
     quickstartCta: "Hazlo tú mismo: de 0 a tu primera transacción en 10 minutos →",
   },
   guarantees: {
@@ -139,18 +143,18 @@ const es = {
         body: "Row-Level Security forzada en cada tabla de negocio, y servicios que conectan con roles sin BYPASSRLS. Los tests de aislamiento corren con esos roles reales.",
       },
     ],
-    link: "Las garantías completas, y lo que no garantiza →",
   },
   tryIt: {
-    title: "Pruébalo en 1 minuto",
+    title: "Tu primera transacción en minutos",
     subtitle:
-      "Solo necesitas Docker con Compose v2 (más curl y python3 para los scripts). El primer build de las imágenes tarda unos minutos; después, levantarlo y cargar datos es cuestión de segundos.",
-    notes: [
-      "Levanta PostgreSQL, NATS, el gateway y los servicios Go, y aplica las migraciones.",
-      "Carga un escenario de wallets: depósitos y retiros con fee, un reverso, un hold capturado y un borrador descartado. Idempotente.",
-      "Ejecuta cada afirmación del README contra tu instancia y la verifica: 37 aserciones, incluidos los casos que deben fallar.",
+      "Sin instalar nada: un sandbox propio y gratis por 14 días, con sus datos aislados de cualquier otro cliente.",
+    steps: [
+      { title: "Crea tu sandbox", body: "Correo, teléfono y 2FA. Al terminar entras a la consola con tu ledger listo." },
+      { title: "Genera tus credenciales", body: "En Desarrolladores → Credenciales de API creas una llave con los permisos que necesites." },
+      { title: "Postea con el SDK o la API", body: "Instala @ledgercore/sdk (o el de PHP) y sigue el quickstart: ledger, cuentas y tu primer depósito." },
     ],
-    consoleNote: "¿Quieres la consola en :3000? Añade --profile web al compose.",
+    ctaPrimary: "Crear mi sandbox",
+    ctaSecondary: "Ver el quickstart",
   },
   trust: [
     "Append-only por diseño",
@@ -160,7 +164,7 @@ const es = {
   finalCta: {
     title: "Deja de reconstruir el ledger. Constrúyelo una sola vez, bien.",
     subtitle:
-      "Código fuente disponible bajo FSL-1.1; cada versión pasa a Apache-2.0 a los dos años. Etapa temprana: clónalo, léelo y corre los escenarios antes de confiarle nada. ¿Sin Docker a mano? Prueba el sandbox hospedado.",
+      "Una API y una consola para tus saldos, comisiones, holds y conciliación. Pruébalo gratis en un sandbox propio; cuando quieras operar en producción, el back office aprueba tu cuenta.",
     ctaPrimary: "Probar el sandbox",
     ctaSecondary: "Ver la consola demo",
   },
@@ -567,7 +571,7 @@ const en: typeof es = {
   meta: {
     title: "LedgerCore — the double-entry ledger for fintechs",
     description:
-      "Source-available double-entry ledger: balanced entries, immutable history, exact money, and idempotency, enforced by PostgreSQL. Run it locally with docker compose.",
+      "Double-entry ledger as a service: balanced entries, immutable history, exact money, and idempotency, enforced by PostgreSQL. One API and a console, with a free sandbox.",
   },
   nav: {
     docs: "Docs",
@@ -579,14 +583,14 @@ const en: typeof es = {
     homeAriaLabel: "LedgerCore — go to home",
   },
   hero: {
-    badge: "Source-available · FSL-1.1 → Apache-2.0 · pre-1.0",
+    badge: "Ledger as a service · API + console · free sandbox",
     titlePre: "The double-entry ledger for fintechs that ",
     titleHighlight: "move money",
     titlePost: "",
     subtitle:
       "Where is the money, who owns it, and which operation explains every cent? LedgerCore answers that question at all times — with database guarantees, not spreadsheets.",
-    ctaPrimary: "Try it in 1 minute",
-    ctaSecondary: "View the code on GitHub",
+    ctaPrimary: "Try it free",
+    ctaSecondary: "Read the docs",
   },
   bench: {
     items: [
@@ -594,8 +598,7 @@ const en: typeof es = {
       { value: "~1,170 tx/s", label: "spreading the load across ledgers (one ledger per worker)" },
       { value: "42 ms", label: "p99 with 32 concurrent workers, end to end over HTTP" },
     ],
-    foot: "Measured on a laptop (Ryzen 7 7840HS, Docker Desktop, stock PostgreSQL settings) against the public API. ",
-    link: "Methodology and how to run it yourself →",
+    foot: "Measured on a laptop (Ryzen 7 7840HS, Docker Desktop, stock PostgreSQL settings) against the public API.",
   },
   scenarios: {
     answerLabel: "What LedgerCore does:",
@@ -637,14 +640,19 @@ const en: typeof es = {
       },
     ],
     footNote:
-      "Your scenario isn't here? Open an issue on GitHub — that's exactly what we want to hear.",
+      "Your scenario isn't here? Create a sandbox and try it with your own flows.",
   },
   how: {
     title: "One API, always-balanced entries",
     subtitle:
-      "A USD 100 deposit with a 3 fee: one POST, three postings, and the debits = credits invariant enforced by the engine.",
+      "A USD 100 deposit with a 3 fee: one call, three postings, and the engine checks debits = credits before it posts.",
     responseNote:
-      "10000 = 9700 + 300. Amounts in minor units (cents), as integers. If it doesn't balance, it doesn't post.",
+      "Amounts travel in cents, as integers. If debits and credits don't add up, the engine rejects the whole transaction.",
+    account: "Account",
+    debit: "Debit",
+    credit: "Credit",
+    total: "Total",
+    accounts: ["Cash (bank)", "Customer wallet", "Fees"],
     quickstartCta: "Do it yourself: from 0 to your first transaction in 10 minutes →",
   },
   guarantees: {
@@ -677,18 +685,18 @@ const en: typeof es = {
         body: "Row-Level Security forced on every business table, and services that connect as roles without BYPASSRLS. The isolation tests run as those real roles.",
       },
     ],
-    link: "The full guarantees, and what it does not guarantee →",
   },
   tryIt: {
-    title: "Try it in 1 minute",
+    title: "Your first transaction in minutes",
     subtitle:
-      "All you need is Docker with Compose v2 (plus curl and python3 for the scripts). The first image build takes a few minutes; after that, starting it and loading data takes seconds.",
-    notes: [
-      "Starts PostgreSQL, NATS, the gateway and the Go services, and runs the migrations.",
-      "Loads a wallet scenario: deposits and withdrawals with fees, a reversal, a captured hold, and a discarded draft. Idempotent.",
-      "Runs every claim in the README against your instance and checks it: 37 assertions, including the cases that must fail.",
+      "Nothing to install: your own free sandbox for 14 days, with its data isolated from every other customer.",
+    steps: [
+      { title: "Create your sandbox", body: "Email, phone and 2FA. When you finish you land in the console with your ledger ready." },
+      { title: "Generate your credentials", body: "Under Developers → API credentials, create a key with the scopes you need." },
+      { title: "Post with the SDK or the API", body: "Install @ledgercore/sdk (or the PHP one) and follow the quickstart: ledger, accounts and your first deposit." },
     ],
-    consoleNote: "Want the console on :3000? Add --profile web to the compose command.",
+    ctaPrimary: "Create my sandbox",
+    ctaSecondary: "Read the quickstart",
   },
   trust: [
     "Append-only by design",
@@ -698,7 +706,7 @@ const en: typeof es = {
   finalCta: {
     title: "Stop rebuilding the ledger. Build it once, and build it right.",
     subtitle:
-      "Source-available under FSL-1.1; each version becomes Apache-2.0 after two years. Early-stage: clone it, read it, and run the scenarios before you trust it with anything. No Docker at hand? Try the hosted sandbox.",
+      "One API and one console for your balances, fees, holds and reconciliation. Try it free in your own sandbox; when you want to go live, the back office approves your account.",
     ctaPrimary: "Try the sandbox",
     ctaSecondary: "See the demo console",
   },
