@@ -43,8 +43,9 @@ function securityHeaders() {
 }
 
 const nextConfig: NextConfig = {
-  // Standalone output so the Docker image only ships the compiled server.
-  output: "standalone",
+  // Standalone output so the Docker image only ships the compiled server;
+  // Vercel (VERCEL=1 at build) packages the app itself and rejects it.
+  output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
