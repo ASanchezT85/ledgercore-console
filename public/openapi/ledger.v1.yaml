@@ -12,8 +12,10 @@ info:
     scoped to the authenticated tenant.
   contact:
     name: LedgerCore Platform Team
-    url: https://github.com/ASanchezT85/ledgercore
+    url: https://ledgercore-console.vercel.app
 servers:
+  - url: https://ledgercore-api.sanchezavila.com
+    description: Hosted LedgerCore (sandbox and production credentials)
   - url: http://localhost:8081
     description: Local development (direct)
   - url: http://localhost:8080
@@ -348,7 +350,7 @@ paths:
       tags: [Ledgers]
       summary: Choose how a provider's loss is shared
       description: |
-        Sets the ledger's `loss_allocation` ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        Sets the ledger's `loss_allocation` (ADR-020
         §6), the rule that says whose money is lost when a provider fails:
 
         - `pro_rata_pool`: the loss is shared over every holder's balance, pro
@@ -401,7 +403,7 @@ paths:
       tags: [Ledgers, Movements]
       summary: Flag movements that stay open too long
       description: |
-        Sets the ledger's `stale_movement_after` ([ADR-019](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-019-staged-movements.md)
+        Sets the ledger's `stale_movement_after` (ADR-019
         §8): how long a movement may stay open (not terminal) before it is
         stale. A duration in Go syntax (`"720h"` for 30 days, `"90m"`), whole
         seconds, from `1m` to `87600h`; `null` turns the check off, which is
@@ -456,7 +458,7 @@ paths:
       tags: [Ledgers]
       summary: Ask console users for a fresh second factor above an amount
       description: |
-        Sets the ledger's `step_up_thresholds` ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)):
+        Sets the ledger's `step_up_thresholds` (ADR-030):
         per asset, the gross amount in minor units (the sum of the
         transaction's debits in that asset) at or above which a **console
         user** must hold a step-up elevation to post. It applies to every
@@ -546,7 +548,7 @@ paths:
       tags: [Ledgers, Reports]
       summary: What each provider holds, and whether customer funds are backed
       description: |
-        The provider level of [ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        The provider level of ADR-020
         §2, per provider and asset. It needs no `loss_allocation`, so it always
         works. An account belongs to a provider when `metadata.provider` names
         it or its path has a `provider` segment followed by the name
@@ -627,7 +629,7 @@ paths:
       tags: [Ledgers, Reports]
       summary: Provider × holder matrix under the ledger's loss rule
       description: |
-        Whose money sits at which provider ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        Whose money sits at which provider (ADR-020
         §2), computed on read under the ledger's `loss_allocation`, never
         stored. It replaces N × M calls to read one wallet per provider.
 
@@ -1351,7 +1353,7 @@ paths:
       description: |
         Closes the holder whose **parent** account is `{id}`
         (`liabilities:holder:<h>`) even when its wallets hold money, which
-        `PATCH /v1/accounts/{id}` refuses ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        `PATCH /v1/accounts/{id}` refuses (ADR-020
         §7). In one database transaction it moves what every liability leaf
         holds, asset by asset, to `liabilities:holder:<h>:dormant` (created when
         missing), freezes that leaf with the `reason` and `case_ref`, and closes
@@ -2031,7 +2033,7 @@ paths:
           description: |
             `frozen_override` was sent and the token lacks the
             `ledger:frozen_override` scope (`forbidden`), or a console user
-            must step up first (`step_up_required`, [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+            must step up first (`step_up_required`, ADR-030).
           content:
             application/json:
               schema:
@@ -2460,7 +2462,7 @@ paths:
           description: |
             `frozen_override` was sent and the token lacks the
             `ledger:frozen_override` scope (`forbidden`), or a console user
-            must step up first (`step_up_required`, [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+            must step up first (`step_up_required`, ADR-030).
           content:
             application/json:
               schema:
@@ -5258,7 +5260,7 @@ components:
         `step_up_required`: the caller is a console user without a fresh
         second factor and this write posts, in some asset, at least the
         ledger's step-up threshold (`PUT /v1/ledgers/{id}/step-up-policy`,
-        [ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+        ADR-030).
         Nothing was written. Get an elevated token with identity's
         `POST /v1/auth/2fa/step-up` and retry with it. Signed requests with
         an API credential are never asked.

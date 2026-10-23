@@ -31,6 +31,8 @@ info:
     derived from the JWT; in the `live` environment endpoint URLs must be
     HTTPS.
 servers:
+  - url: https://ledgercore-api.sanchezavila.com
+    description: Hosted LedgerCore (sandbox and production credentials)
   - url: http://localhost:8084
     description: Local development (direct)
   - url: http://localhost:8080

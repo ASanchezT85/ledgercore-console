@@ -39,6 +39,8 @@ info:
         never part of the default)
       - standard registered claims (`sub` = `api_key:<id>` or `user:<id>`, `iat`, `exp`; TTL 15 minutes)
 servers:
+  - url: https://ledgercore-api.sanchezavila.com
+    description: Hosted LedgerCore (sandbox and production credentials)
   - url: http://localhost:8082
     description: Local development (direct)
   - url: http://localhost:8080
@@ -940,7 +942,7 @@ paths:
       tags: [Console]
       summary: Prove a fresh TOTP code before a large money write
       description: |
-        Step-up ([ADR-030](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-030-step-up-by-amount.md)).
+        Step-up (ADR-030).
         Needs an **active** session and either a fresh TOTP `code` (a time step
         not used before) or a `passkey` answer (challenge from
         `POST /v1/auth/passkeys/assertion`); recovery codes are not accepted.
