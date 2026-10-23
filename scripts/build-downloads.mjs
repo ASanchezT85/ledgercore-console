@@ -1,5 +1,5 @@
 // Copyright 2025-2026 Alexander J. Sánchez T.
-// SPDX-License-Identifier: FSL-1.1-ALv2
+// SPDX-License-Identifier: LicenseRef-Proprietary
 
 // Builds the portal's downloads from the OpenAPI contracts (source of truth):
 //   public/downloads/ledgercore.postman_collection.json   every signed operation, with the
