@@ -13,6 +13,8 @@ info:
     that prefix to this service). The tenant is derived from the JWT, except
     on the signed public callback route, which names it in the path.
 servers:
+  - url: https://ledgercore-api.sanchezavila.com
+    description: Hosted LedgerCore (sandbox and production credentials)
   - url: http://localhost:8083
     description: Local development (direct)
   - url: http://localhost:8080
