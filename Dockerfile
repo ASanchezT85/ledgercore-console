@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: FSL-1.1-ALv2
 
 # LedgerCore Console — multi-stage build with Next.js standalone output.
-# Build context = repository ROOT (consistent with the Go services):
-#   docker build -f apps/console/Dockerfile -t ledgercore/console .
+# Build context = this repository root:
+#   docker build -t ledgercore/console .
 
 FROM node:26-alpine AS base
 RUN npm install -g pnpm@11
@@ -12,13 +12,13 @@ WORKDIR /app
 
 # --- dependencies ---
 FROM base AS deps
-COPY apps/console/package.json apps/console/pnpm-lock.yaml apps/console/pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # --- build ---
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY apps/console/ ./
+COPY . ./
 # CI=true stops pnpm's deps-status check from trying to purge node_modules
 # (no TTY inside docker build -> ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY).
 #

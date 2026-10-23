@@ -6,7 +6,7 @@
 //                                                          ADR-023 request signer as pre-request script
 //   public/downloads/ledgercore.postman_environment.json  baseUrl, apiKey, apiSecret
 //   public/downloads/request-signatures.json              the shared signing test vectors
-// The outputs are committed (the Docker build only sees apps/console), so:
+// The outputs are committed (Vercel and the Docker build only see this repo), so:
 //   node scripts/build-downloads.mjs           regenerate them (prebuild)
 //   node scripts/build-downloads.mjs --check   fail if they are stale (the make verify gate)
 // Both first replay the signing vectors against the Postman script, so a signer
@@ -17,8 +17,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
-const root = dirname(dirname(fileURLToPath(import.meta.url))); // apps/console
-const contracts = join(root, "../../contracts");
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
+// The contracts live in the ledgercore repo; by default a sibling checkout.
+const contracts = process.env.LEDGERCORE_CONTRACTS_DIR ?? join(root, "../ledgercore/contracts");
 const out = join(root, "public/downloads");
 const check = process.argv.includes("--check");
 

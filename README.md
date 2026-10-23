@@ -17,7 +17,7 @@ externas).
 ## Arranque rápido
 
 ```bash
-cd apps/console
+cd ledgercore-console
 pnpm install
 pnpm dev        # http://localhost:3000
 ```
@@ -109,7 +109,7 @@ numerales tabulares — nunca floats.
 ## Estructura
 
 ```
-apps/console/
+ledgercore-console/
 ├── app/
 │   ├── (console)/          # layout con sidebar + páginas autenticadas
 │   │   ├── page.tsx        # dashboard
@@ -134,10 +134,10 @@ apps/console/
 ## Docker
 
 El `Dockerfile` es multi-stage (`node:26-alpine`) y usa la salida
-`standalone` de Next.js. El contexto de build es la **raíz del repo**:
+`standalone` de Next.js. El contexto de build es la raíz de este repo:
 
 ```bash
-docker build -f apps/console/Dockerfile -t ledgercore/console .
+docker build -t ledgercore/console .
 docker run -p 3000:3000 -e NEXT_PUBLIC_API_URL=http://gateway:8080 ledgercore/console
 ```
 

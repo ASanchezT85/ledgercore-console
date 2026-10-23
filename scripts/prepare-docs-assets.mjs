@@ -6,15 +6,16 @@
 //   1. Copies Scalar's standalone browser bundle from node_modules into
 //      public/vendor/ (served same-origin — no external CDN in production).
 //   2. Syncs the OpenAPI contracts from contracts/openapi/ (source of truth)
-//      into public/openapi/ when the monorepo is present. The copies in
-//      public/openapi/ are committed so the Docker build (whose context only
-//      copies apps/console/) still works without the contracts directory.
+//      into public/openapi/ when the ledgercore repo is checked out next to this one
+//      (or LEDGERCORE_CONTRACTS_DIR points at its contracts/). The copies in
+//      public/openapi/ are committed so the Docker build (and Vercel)
+//      still works without the contracts directory.
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = dirname(dirname(fileURLToPath(import.meta.url))); // apps/console
+const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 // 1. Scalar standalone bundle
 const scalarSrc = join(
@@ -47,8 +48,11 @@ if (pinned !== sri) {
 }
 console.log("[docs-assets] Scalar bundle matches its pinned SRI hash");
 
-// 2. OpenAPI contracts (monorepo source of truth -> committed copies)
-const contractsDir = join(root, "../../contracts/openapi");
+// 2. OpenAPI contracts (ledgercore repo is the source of truth -> committed copies)
+const contractsDir = join(
+  process.env.LEDGERCORE_CONTRACTS_DIR ?? join(root, "../ledgercore/contracts"),
+  "openapi",
+);
 const specDir = join(root, "public/openapi");
 mkdirSync(specDir, { recursive: true });
 if (existsSync(contractsDir)) {
