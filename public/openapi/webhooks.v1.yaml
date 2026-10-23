@@ -14,6 +14,14 @@ info:
     point inside the window without losing events. Verify by accepting the
     header if ANY `v1` entry matches your secret.
 
+    Delivery is at-least-once and unordered. Each delivery has a stable
+    `event_id` (header `X-LedgerCore-Event-Id`: dedupe by it) and a
+    per-subscription gapless `sequence` (header `X-LedgerCore-Sequence`: order
+    by it, a jump means a gap). `GET /v1/webhook-deliveries` with
+    `subscription_id` + `after_sequence` returns what a receiver missed, oldest
+    first. Balances are always re-readable from the ledger, which stays the
+    source of truth. Full client contract: docs/webhooks-client-contract.md.
+
     Every error uses the platform shape
     `{"error":{"code","message","request_id"}}` with stable snake_case codes
     (see docs/errores-api.md).
@@ -228,11 +236,23 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/DeliveryStatus'
+        - name: after_sequence
+          in: query
+          description: |
+            Replay mode: only deliveries of `subscription_id` with a greater
+            `sequence`, OLDEST first (so they can be applied in order), any
+            status. Requires `subscription_id`. `cursor` is ignored and
+            `next_cursor` is always null: advance `after_sequence` to the last
+            sequence received and call again until `data` is empty.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
         - $ref: '#/components/parameters/PageLimit'
         - $ref: '#/components/parameters/PageCursor'
       responses:
         '200':
-          description: Page of deliveries, newest first.
+          description: Page of deliveries, newest first (oldest first in replay mode).
           content:
             application/json:
               schema:
@@ -255,6 +275,7 @@ paths:
                         event_type: ledger.transaction.posted
                         payload: { event_id: 01890a5d-ac96-774b-bcce-b302099a8057, type: ledger.transaction.posted }
                         status: delivered
+                        sequence: 41
                         attempts: 1
                         next_attempt_at: '2026-07-24T12:05:00Z'
                         last_status_code: 200
@@ -529,8 +550,14 @@ components:
       type: object
       required:
         [id, subscription_id, event_id, event_type, payload, status, attempts,
-         next_attempt_at, last_status_code, last_error, created_at, delivered_at]
+         next_attempt_at, last_status_code, last_error, created_at, delivered_at, sequence]
       properties:
+        sequence:
+          type: integer
+          format: int64
+          description: |
+            Per-subscription, gapless, monotonic delivery number (1, 2, 3...),
+            also sent as `X-LedgerCore-Sequence`. Unchanged by retries.
         id:
           type: string
           format: uuid

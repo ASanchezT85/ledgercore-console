@@ -504,6 +504,42 @@ paths:
         '403': { $ref: '#/components/responses/StepUpRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/ledgers/{id}/inactive-holders:
+    get:
+      operationId: listInactiveHolders
+      tags: [Ledgers, Reports]
+      summary: Holders with money and no movement for N days
+      description: |
+        The candidates for `POST /v1/accounts/{id}/close-holder`. A holder is
+        listed when its liability leaves (`liabilities:holder:<h>:<leaf>`, closed
+        ones, the dormant leaf and provider claims left out) hold money in some
+        asset and none of their balances has changed for at least `days` days
+        (a posting or a hold counts as movement). Oldest activity first; a
+        holder already swept is not listed. Requires the `ledger:read` scope.
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+        - name: days
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 3650 }
+        - name: limit
+          in: query
+          required: false
+          description: At most this many holders (default 100, maximum 500). There is no cursor; sweep the oldest and ask again.
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        '200':
+          description: Inactive holders, oldest activity first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InactiveHolderList'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /v1/ledgers/{id}/provider-exposure:
     get:
       operationId: getLedgerProviderExposure
@@ -1306,6 +1342,69 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/accounts/{id}/close-holder:
+    post:
+      operationId: closeHolder
+      tags: [Accounts]
+      summary: Close a holder that still has money
+      description: |
+        Closes the holder whose **parent** account is `{id}`
+        (`liabilities:holder:<h>`) even when its wallets hold money, which
+        `PATCH /v1/accounts/{id}` refuses ([ADR-020](https://github.com/ASanchezT85/ledgercore/blob/main/docs/adr/ADR-020-one-wallet-provider-exposure.md)
+        §7). In one database transaction it moves what every liability leaf
+        holds, asset by asset, to `liabilities:holder:<h>:dormant` (created when
+        missing), freezes that leaf with the `reason` and `case_ref`, and closes
+        the emptied leaves. The money never leaves the holder's own customer
+        liabilities: `/coverage` and the provider backing check do not change,
+        and under `by_provider` the holder's portion at each provider moves with
+        it. To pay the holder out later, unfreeze the dormant leaf
+        (`POST /v1/accounts/{id}/unfreeze`) and move the money with a normal
+        transaction. Requires the `ledger:write` scope.
+
+        Refused whole, nothing moves: 409 `conflict` when a leaf has active
+        holds or pending drafts, is in the red, or is a receivable with a
+        balance (the holder owes the operator); 422 `account_inactive` when a
+        leaf is frozen (lift the freeze first, so a compliance freeze is never
+        bypassed); 400 when `{id}` is not a holder's parent account.
+
+        Naturally idempotent: a retry finds the leaves closed and answers 200
+        with `transaction_id: null` and nothing moved or closed. Audited as
+        `holder.sweep` (plus one `account.update` per closed leaf and the
+        `account.freeze` of the dormant leaf).
+      parameters:
+        - $ref: '#/components/parameters/SignatureApiKey'
+        - $ref: '#/components/parameters/SignatureTimestamp'
+        - $ref: '#/components/parameters/SignatureNonce'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HolderClose'
+            examples:
+              inactive:
+                value:
+                  reason: Inactive for 24 months, closure notice sent
+                  case_ref: DORM-2026-031
+      responses:
+        '200':
+          description: What the call moved and closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HolderCloseResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: A leaf is frozen (`account_inactive`); unfreeze the holder first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/accounts/{id}/unfreeze:
     post:
@@ -6062,6 +6161,74 @@ components:
                 required: [created]
                 properties:
                   created: { type: boolean }
+
+    HolderClose:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Why the holder is closed (400 when missing or blank). Stored on the dormant leaf and in the audit log.
+        case_ref:
+          type: string
+          maxLength: 128
+          description: Optional case or ticket number.
+
+    HolderCloseResult:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [transaction_id, moved, closed, dormant]
+          properties:
+            transaction_id:
+              type: [string, 'null']
+              format: uuid
+              description: The posted transaction that moved the money; null when nothing moved.
+            moved:
+              type: array
+              items:
+                $ref: '#/components/schemas/Money'
+              description: Per asset, what went to the dormant leaf.
+            closed:
+              type: array
+              items:
+                $ref: '#/components/schemas/Account'
+              description: The leaves this call closed.
+            dormant:
+              description: The holder's dormant leaf, frozen, when it has one.
+              oneOf:
+                - $ref: '#/components/schemas/Account'
+                - type: 'null'
+
+    InactiveHolderList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [holder, account_id, last_activity, balances]
+            properties:
+              holder:
+                type: string
+              account_id:
+                type: string
+                format: uuid
+                description: The holder's parent account, the `{id}` of close-holder.
+              last_activity:
+                type: string
+                format: date-time
+                description: Latest balance change across the holder's liability leaves.
+              balances:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Money'
 
     AccountSubtree:
       type: object
