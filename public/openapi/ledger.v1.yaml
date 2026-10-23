@@ -10,6 +10,14 @@ info:
     Multi-tenancy: the tenant is derived from the authenticated credential (a
     signed request, see `signedRequest`, or a console-user JWT); resources are always
     scoped to the authenticated tenant.
+
+    Scopes: `ledger:read` for every GET, `ledger:write` for every state change.
+    `ledger:post` is the deposit-only half of `ledger:write` (a key for an
+    integration that only books money): it is enough for `POST /v1/transactions`
+    and `/post`, `/v1/movements` and `/close`, `/v1/holds` and their
+    capture/release/extend, `/v1/posting-events` and `/v1/posting-groups`, and
+    for nothing else (policies, accounts, periods, freezes, reversals,
+    approvals and transfers answer 403). `ledger:write` implies `ledger:post`.
   contact:
     name: LedgerCore Platform Team
     url: https://ledgercore-console.vercel.app
