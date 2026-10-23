@@ -14,49 +14,33 @@ import {
 import { LanguageProvider, useLang } from "@/components/language";
 import { PublicFooter, PublicHeader } from "@/components/public-header";
 
-const CURL_SNIPPET = `curl -X POST http://localhost:8081/v1/transactions \\
-  -H "X-Tenant-Id: 11111111-1111-1111-1111-111111111111" \\
-  -H "Idempotency-Key: dep-0001" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "ledger_id": "'$LEDGER'",
-    "description": "Customer USD deposit",
-    "postings": [
-      { "account_id": "'$CASH'",   "direction": "DEBIT",  "amount": { "asset": "USD", "amount": "10000" } },
-      { "account_id": "'$WALLET'", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "9700" } },
-      { "account_id": "'$FEES'",   "direction": "CREDIT", "amount": { "asset": "USD", "amount": "300" } }
-    ]
-  }'`;
+const API_URL = "https://ledgercore-api.sanchezavila.com";
 
-// Real 201 response from the local compose stack (the exact request above).
-const RESPONSE_SNIPPET = `{
-  "id": "01a155df-47e5-73c8-9958-fc0c8bccc30c",
-  "ledger_id": "01a155df-469e-79dc-abbd-ac1a4454c359",
-  "idempotency_key": "dep-0001",
-  "description": "Customer USD deposit",
-  "status": "posted",
-  "postings": [
-    { "id": "01a155df-47e5-73c1-bc10-9dd491f1001c", "account_id": "01a155df-46fe-74b2-8c7f-f55ad7a34167", "direction": "DEBIT",  "amount": { "asset": "USD", "amount": "10000" } },
-    { "id": "01a155df-47e5-73c2-8ba7-e4923596fd47", "account_id": "01a155df-4769-7149-a825-0b1644219b50", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "9700" } },
-    { "id": "01a155df-47e5-73c3-888a-d4ab6ef0b5e4", "account_id": "01a155df-47b0-78ab-918f-a78ec0a59d75", "direction": "CREDIT", "amount": { "asset": "USD", "amount": "300" } }
+const SDK_SNIPPET = `import { LedgerCore, Money } from "@ledgercore/sdk";
+
+const lc = new LedgerCore({
+  apiKey: process.env.LEDGERCORE_API_KEY,
+  apiSecret: process.env.LEDGERCORE_API_SECRET,
+  baseUrl: "${API_URL}",
+});
+const usd = (v: string) => Money.fromDecimal(v, "USD", 2);
+
+await lc.transactions.create({
+  ledger_id: ledger.id,
+  idempotency_key: "dep-0001",
+  description: "Customer USD deposit",
+  postings: [
+    { account_id: cash.id,   direction: "DEBIT",  amount: usd("100.00") },
+    { account_id: wallet.id, direction: "CREDIT", amount: usd("97.00") },
+    { account_id: fees.id,   direction: "CREDIT", amount: usd("3.00") },
   ],
-  "metadata": {},
-  "reversed_by": null,
-  "reverses": null,
-  "adjusts_period_id": null,
-  "effective_at": "2026-10-19T20:34:18.725247785Z",
-  "created_at": "2026-10-19T20:34:18.725247785Z",
-  "posted_at": "2026-10-19T20:34:18.725247785Z"
-}`;
+});`;
 
-const REPO = "https://github.com/ASanchezT85/ledgercore";
-
-// Same commands as the README quickstart and "Demo data"; notes in i18n tryIt.notes.
-const TRY_STEPS = [
-  `git clone ${REPO}.git && cd ledgercore
-docker compose -f infra/compose/docker-compose.yml up -d --build`,
-  "bash examples/demo-data.sh",
-  "bash examples/golden-scenarios.sh",
+// The three postings of SDK_SNIPPET, as the engine books them.
+const ENTRY = [
+  { debit: "100.00", credit: "" },
+  { debit: "", credit: "97.00" },
+  { debit: "", credit: "3.00" },
 ] as const;
 
 const TRUST_ICONS = [BookLock, ShieldCheck, Layers] as const;
@@ -119,7 +103,7 @@ function LandingContent() {
         </p>
         <div className="lc-enter mt-9 flex flex-wrap items-center gap-3 [--lc-delay:180ms]">
           <CtaPrimary href="#try">{t.hero.ctaPrimary}</CtaPrimary>
-          <CtaSecondary href={REPO}>{t.hero.ctaSecondary}</CtaSecondary>
+          <CtaSecondary href="/docs">{t.hero.ctaSecondary}</CtaSecondary>
         </div>
       </section>
 
@@ -142,12 +126,6 @@ function LandingContent() {
         </div>
         <p className="mt-6 text-sm text-ink-faint">
           {t.bench.foot}
-          <Link
-            href={`${REPO}/blob/main/docs/benchmark.md`}
-            className="font-medium text-accent hover:underline"
-          >
-            {t.bench.link}
-          </Link>
         </p>
       </section>
 
@@ -199,33 +177,55 @@ function LandingContent() {
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-          <div className="overflow-hidden rounded-(--radius-card) border border-edge bg-surface lg:col-span-3">
+          <div className="min-w-0 overflow-hidden rounded-(--radius-card) border border-edge bg-surface lg:col-span-3">
             <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
               <span className="font-mono text-[11px] text-ink-faint">
                 POST /v1/transactions
               </span>
               <span className="text-[10px] tracking-widest text-ink-faint uppercase">
-                request
+                @ledgercore/sdk
               </span>
             </div>
             <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-ink-muted">
-              <code>{CURL_SNIPPET}</code>
+              <code>{SDK_SNIPPET}</code>
             </pre>
           </div>
-          <div className="overflow-hidden rounded-(--radius-card) border border-edge bg-surface lg:col-span-2">
+          <div className="self-start overflow-hidden rounded-(--radius-card) border border-edge bg-surface lg:col-span-2">
             <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
               <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <CheckCircle2 size={12} aria-hidden="true" />
-                201 Created · balanced
+                201 Created · posted
               </span>
               <span className="text-[10px] tracking-widest text-ink-faint uppercase">
-                response
+                USD
               </span>
             </div>
-            <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-ink-muted">
-              <code>{RESPONSE_SNIPPET}</code>
-            </pre>
-            <p className="border-t border-edge px-4 py-3 text-[11px] leading-relaxed text-ink-faint">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-edge text-left text-[11px] tracking-wider text-ink-faint uppercase">
+                  <th className="px-4 py-2.5 font-medium">{t.how.account}</th>
+                  <th className="px-4 py-2.5 text-right font-medium">{t.how.debit}</th>
+                  <th className="px-4 py-2.5 text-right font-medium">{t.how.credit}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ENTRY.map((row, i) => (
+                  <tr key={t.how.accounts[i]} className="border-b border-edge">
+                    <td className="px-4 py-3 text-ink">{t.how.accounts[i]}</td>
+                    <td className="num px-4 py-3 text-right text-ink">{row.debit}</td>
+                    <td className="num px-4 py-3 text-right text-ink">{row.credit}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="font-semibold text-accent">
+                  <td className="px-4 py-3">{t.how.total}</td>
+                  <td className="num px-4 py-3 text-right">100.00</td>
+                  <td className="num px-4 py-3 text-right">100.00</td>
+                </tr>
+              </tfoot>
+            </table>
+            <p className="border-t border-edge px-4 py-3 text-xs leading-relaxed text-ink-faint">
               {t.how.responseNote}
             </p>
           </div>
@@ -260,14 +260,6 @@ function LandingContent() {
             </div>
           ))}
         </div>
-        <p className="mt-8">
-          <Link
-            href={`${REPO}#what-ledgercore-guarantees`}
-            className="text-sm font-medium text-accent hover:underline"
-          >
-            {t.guarantees.link}
-          </Link>
-        </p>
       </section>
 
       {/* Try it */}
@@ -280,23 +272,22 @@ function LandingContent() {
             {t.tryIt.subtitle}
           </p>
         </div>
-        <ol className="grid grid-cols-1 gap-4">
-          {TRY_STEPS.map((cmd, i) => (
+        <ol className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {t.tryIt.steps.map(({ title, body }, i) => (
             <li
-              key={cmd}
-              className="overflow-hidden rounded-(--radius-card) border border-edge bg-surface"
+              key={title}
+              className="rounded-(--radius-card) border border-edge bg-surface p-6"
             >
-              <p className="border-b border-edge px-4 py-2.5 text-sm text-ink-muted">
-                <span className="num mr-2 font-semibold text-accent">{i + 1}</span>
-                {t.tryIt.notes[i]}
-              </p>
-              <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-ink">
-                <code>{cmd}</code>
-              </pre>
+              <span className="num text-sm font-semibold text-accent">{i + 1}</span>
+              <h3 className="mt-2 text-base font-semibold text-ink">{title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-ink-muted">{body}</p>
             </li>
           ))}
         </ol>
-        <p className="mt-6 text-sm text-ink-faint">{t.tryIt.consoleNote}</p>
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <CtaPrimary href="/signup">{t.tryIt.ctaPrimary}</CtaPrimary>
+          <CtaSecondary href="/docs/quickstart">{t.tryIt.ctaSecondary}</CtaSecondary>
+        </div>
       </section>
 
       {/* Trust strip */}

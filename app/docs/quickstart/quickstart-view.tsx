@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Lang } from "@/lib/i18n";
 import { curlSign } from "../guias/autenticacion/content";
 
-const API = "http://localhost:8080";
+const API = "https://ledgercore-api.sanchezavila.com";
 
 // ---- curls (shared between languages; shapes follow ledger.v1.yaml) -------
 
@@ -203,7 +203,7 @@ const ES: QuickstartCopy = {
   ],
   sdksTitle: "Lo mismo con los SDKs oficiales",
   sdksBody:
-    "Todo el flujo anterior en 5 líneas: los SDKs de TypeScript (@ledgercore/sdk) y PHP (ledgercore/sdk) firman cada request por ti con tu llave y tu secreto, generan la idempotency key si no la pasas y manejan el dinero siempre como strings de unidades menores (Money.fromDecimal). Viven en sdks/ dentro del monorepo.",
+    "Todo el flujo anterior en 5 líneas: los SDKs de TypeScript (@ledgercore/sdk) y PHP (ledgercore/sdk) firman cada request por ti con tu llave y tu secreto, generan la idempotency key si no la pasas y manejan el dinero siempre como strings de unidades menores (Money.fromDecimal). Se instalan con npm install @ledgercore/sdk y composer require ledgercore/sdk.",
   sdkTsLabel: "TypeScript · npm install @ledgercore/sdk",
   sdkPhpLabel: "PHP · composer require ledgercore/sdk",
   errorsTitle: "Errores comunes",
@@ -282,7 +282,7 @@ const EN: QuickstartCopy = {
   ],
   sdksTitle: "The same flow with the official SDKs",
   sdksBody:
-    "The whole flow above in 5 lines: the TypeScript (@ledgercore/sdk) and PHP (ledgercore/sdk) SDKs sign every request for you with your key and secret, generate the idempotency key when you don't pass one, and always treat money as minor-unit strings (Money.fromDecimal). They live under sdks/ in the monorepo.",
+    "The whole flow above in 5 lines: the TypeScript (@ledgercore/sdk) and PHP (ledgercore/sdk) SDKs sign every request for you with your key and secret, generate the idempotency key when you don't pass one, and always treat money as minor-unit strings (Money.fromDecimal). Install them with npm install @ledgercore/sdk and composer require ledgercore/sdk.",
   sdkTsLabel: "TypeScript · npm install @ledgercore/sdk",
   sdkPhpLabel: "PHP · composer require ledgercore/sdk",
   errorsTitle: "Common errors",

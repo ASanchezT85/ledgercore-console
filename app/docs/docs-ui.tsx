@@ -16,7 +16,7 @@ import { BrandLockup } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import type { Lang } from "@/lib/i18n";
 
-export const API_BASE = "http://localhost:8080";
+export const API_BASE = "https://ledgercore-api.sanchezavila.com";
 
 // ---- content model --------------------------------------------------------
 
